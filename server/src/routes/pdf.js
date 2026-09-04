@@ -103,9 +103,9 @@ router.post("/generate-docx", async (req, res) => {
             center: AlignmentType.CENTER,
         };
         const align = ALIGN[typo.align] || AlignmentType.LEFT;
-        // 页边距:前端画布 padding 24/38/54 → docx twips(近似 A4 边距)
-        const MARGIN_TW = { 24: 720, 38: 1080, 54: 1440 };
-        const marginTw = MARGIN_TW[typo.margin] ?? 1080;
+        // 页边距:与画布预览厘米等价(24px≈0.6cm→360twips / 38px≈1.0cm→570 / 54px≈1.4cm→810)
+        const MARGIN_TW = { 24: 360, 38: 570, 54: 810 };
+        const marginTw = MARGIN_TW[typo.margin] ?? 570;
 
         const info = resumeData.personalInfo || {};
         const contactLine = [

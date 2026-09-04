@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import * as api from "../utils/api";
 import { track } from "../utils/analytics";
@@ -14,7 +14,7 @@ import StylishPreview from "../components/templates/StylishTemplate";
 
 import EditorTopbar from "../components/editor/EditorTopbar";
 import EditorDrawer from "../components/editor/EditorDrawer";
-import { defaultSettings, readSettings, ORDER_SUPPORTED_TEMPLATES } from "../utils/resumeSettings";
+import { defaultSettings, readSettings, zonesFor } from "../utils/resumeSettings";
 
 /** 模板元数据 —— 与右侧抽屉的"切换模板"tab 共享 */
 const TEMPLATES = [
@@ -47,6 +47,8 @@ const blankResume = () => ({
     graduationYear: "",
   }],
 });
+
+const PAGE_H = 1160; // A4 近似页高(与 .canvas-paper min-height 一致)
 
 /** ATS 格式 → 编辑器格式 */
 const atsToEditor = (resumeData) => {
@@ -91,15 +93,30 @@ export default function Editor() {
   const [versions, setVersions] = useState([]);
   const [activeId, setActiveId] = useState(null);
 
-  const [loadingStates, setLoadingStates] = useState({
-    summary: false,
-    bullets: {},
-    star: {},
-  });
+  const [busy, setBusy] = useState({}); // 忙碌键:summary | bullets:<i> | star:<i> | polish
+  const markBusy = useCallback((key, on) => {
+    setBusy((b) => ({ ...b, [key]: on }));
+  }, []);
+  const isBusy = (key) => !!busy[key];
 
   const [error, setError] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [activeAI, setActiveAI] = useState(null);
+
+  // 抽屉 tab 外部请求(顶部「简历美化」→ 切到模板 tab)
+  const [drawerTabReq, setDrawerTabReq] = useState({ tab: "templates", tick: 0 });
+  // 「AI 一键优化」点击后的引导脉冲(短暂高亮画布)
+  const [aiPulseOn, setAiPulseOn] = useState(false);
+  const pulseTimer = useRef(null);
+
+  // ===== 字段级 AI 悬浮工具条 =====
+  const wrapRef = useRef(null);
+  const paperRef = useRef(null);
+  const fieldElRef = useRef(null); // 当前聚焦的 [data-ai] DOM 节点(用于重定位)
+  const [fieldAI, setFieldAI] = useState(null); // { top, left, ctx }
+  const BAR_H = 40;
+  const BAR_W = 380;
+  const BAR_GAP = 8;
 
   // 防竞态守卫(必须是 state 而非 ref):
   // hydrated 为 false 期间自动保存绝不写入,防止空白简历覆盖刚导入的数据。
@@ -225,7 +242,8 @@ export default function Editor() {
 
   /* AI Functions */
   const generateSummary = async () => {
-    setLoadingStates((s) => ({ ...s, summary: true }));
+    if (isBusy("summary")) return;
+    markBusy("summary", true);
     setError(null);
     try {
       const startedAt = Date.now();
@@ -242,7 +260,7 @@ export default function Editor() {
       track("ai_generate_fail", { feature: "summary", reason: String(err.message || err).slice(0, 120) });
       setError(`生成个人简介失败: ${err.message}`);
     } finally {
-      setLoadingStates((s) => ({ ...s, summary: false }));
+      markBusy("summary", false);
     }
   };
 
@@ -252,7 +270,9 @@ export default function Editor() {
       setError("请先填写职位与公司");
       return;
     }
-    setLoadingStates((s) => ({ ...s, bullets: { ...s.bullets, [expIndex]: true } }));
+    const key = `bullets:${expIndex}`;
+    if (isBusy(key)) return;
+    markBusy(key, true);
     setError(null);
     try {
       const startedAt = Date.now();
@@ -273,13 +293,15 @@ export default function Editor() {
       track("ai_generate_fail", { feature: "bullets", reason: String(err.message || err).slice(0, 120) });
       setError(`生成经历要点失败: ${err.message}`);
     } finally {
-      setLoadingStates((s) => ({ ...s, bullets: { ...s.bullets, [expIndex]: false } }));
+      markBusy(key, false);
     }
   };
 
   const convertToSTAR = async (expIndex) => {
     const exp = resume.experiences[expIndex];
-    setLoadingStates((s) => ({ ...s, star: { ...s.star, [expIndex]: true } }));
+    const key = `star:${expIndex}`;
+    if (isBusy(key)) return;
+    markBusy(key, true);
     setError(null);
     try {
       const startedAt = Date.now();
@@ -298,9 +320,92 @@ export default function Editor() {
       track("ai_generate_fail", { feature: "star", reason: String(err.message || err).slice(0, 120) });
       setError(`STAR 格式转换失败: ${err.message}`);
     } finally {
-      setLoadingStates((s) => ({ ...s, star: { ...s.star, [expIndex]: false } }));
+      markBusy(key, false);
     }
   };
+
+  // 悬浮工具条按钮点击分发
+  const runFieldAI = async (action) => {
+    const fa = fieldAI;
+    if (!fa) return;
+    const { ctx } = fa;
+    try {
+      if (action === "polish") {
+        const el = fieldElRef.current;
+        const text = (el?.textContent || "").trim();
+        if (!text) {
+          setError("这个字段还是空的,先写点内容再来润色吧。");
+          return;
+        }
+        markBusy("polish", true);
+        const startedAt = Date.now();
+        track("ai_generate_click", { feature: "polish" });
+        const kind = ctx.k === "bullet" ? "bullet" : ctx.f === "skills" ? "skills" : "summary";
+        const response = await api.polishText({ text, kind });
+        if (ctx.k === "field") updateField(ctx.f, response.polished);
+        else if (ctx.k === "bullet") updateBullet(ctx.i, ctx.bi, response.polished);
+        track("ai_generate_success", { feature: "polish", ms: Date.now() - startedAt });
+      } else if (action === "gen_summary") {
+        await generateSummary();
+      } else if (action === "bullets") {
+        await generateBulletsForExp(ctx.i);
+      } else if (action === "star") {
+        await convertToSTAR(ctx.i);
+      }
+    } catch (err) {
+      track("ai_generate_fail", { feature: "polish", reason: String(err.message || err).slice(0, 120) });
+      setError(`AI 处理失败: ${err.message}`);
+    } finally {
+      markBusy("polish", false);
+    }
+  };
+
+  /* ===== 悬浮工具条:定位 ===== */
+  const computeBarPos = (el, wrap) => {
+    const r = el.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    // wrap 为滚动容器,用内容坐标保证滚动时工具条跟随字段
+    const topRaw = r.top - wr.top + wrap.scrollTop;
+    const leftRaw = r.left - wr.left + wrap.scrollLeft;
+    const elH = r.height;
+    let top = topRaw - BAR_H - BAR_GAP;
+    let left = leftRaw + r.width / 2 - BAR_W / 2;
+    // 视口内钳制
+    const maxLeft = wr.width - BAR_W - 8;
+    left = Math.max(8, Math.min(left, Math.max(8, maxLeft)));
+    if (top < 6) top = topRaw + elH + BAR_GAP;
+    return { top, left };
+  };
+
+  const openFieldAI = (el) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    let ctx;
+    try { ctx = JSON.parse(el.dataset.ai || "null"); } catch { ctx = null; }
+    if (!ctx) return;
+    fieldElRef.current = el;
+    const pos = computeBarPos(el, wrap);
+    setFieldAI({ ...pos, ctx });
+  };
+
+  // 画布滚动 / 窗口尺寸变化时重定位(避免工具条与字段脱节)
+  const repositionFieldAI = useCallback(() => {
+    const el = fieldElRef.current;
+    const wrap = wrapRef.current;
+    if (!el || !wrap || !document.contains(el)) return;
+    setFieldAI((fa) => (fa ? { ...fa, ...computeBarPos(el, wrap) } : fa));
+  }, [BAR_H, BAR_W, BAR_GAP]);
+
+  useEffect(() => {
+    if (!fieldAI) return;
+    const onKey = (e) => { if (e.key === "Escape") { setFieldAI(null); fieldElRef.current?.blur?.(); } };
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", repositionFieldAI);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", repositionFieldAI);
+    };
+  }, [fieldAI, repositionFieldAI]);
 
   /* Progress */
   const progress = useMemo(() => {
@@ -316,6 +421,37 @@ export default function Editor() {
     if (resume.education.some((e) => e.school && e.degree)) score += 15;
     return Math.min(score, 100);
   }, [resume]);
+
+  /* ===== 长简历自动分页:连续流测量 → 估算页数 + 画分页线 ===== */
+  const [pageCount, setPageCount] = useState(1);
+  const [pageH, setPageH] = useState(PAGE_H);
+  useEffect(() => {
+    const paper = paperRef.current;
+    if (!paper || !hydrated) { setPageCount(1); return; }
+    const calc = () => {
+      // 页高取实际渲染的 min-height(响应式下可能小于默认 A4 近似值)
+      let ph = PAGE_H;
+      try {
+        const mh = parseFloat(window.getComputedStyle(paper).minHeight);
+        if (Number.isFinite(mh) && mh > 0) ph = mh;
+      } catch { /* keep default */ }
+      setPageH((p) => (p === ph ? p : ph));
+      const margin = currentSettings.typography.margin || 38;
+      const h = paper.scrollHeight || 0;
+      const overflow = h - ph;
+      let next = 1;
+      if (overflow > 0) {
+        const per = ph - margin * 2;
+        next = 1 + Math.ceil(overflow / Math.max(per, 200));
+      }
+      setPageCount((p) => (p === next ? p : next));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    ro.observe(paper);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resume, currentSettings.typography, templateId, hydrated]);
 
   /* Persist to localStorage(多版本:写当前激活版本 + 写穿 resumeData 兼容旧页面)
      守卫:hydrated 为 false 时绝不写入 */
@@ -421,14 +557,23 @@ export default function Editor() {
     track("template_change", { template: id });
   };
 
-  /* ===== AI 工具组行为(P1.1:快捷入口;P1.2 字段级 AI 悬浮工具条强化) ===== */
+  /* ===== AI 工具组行为(P1.3:与字段级悬浮工具条联动) ===== */
+  const triggerAiPulse = () => {
+    if (pulseTimer.current) clearTimeout(pulseTimer.current);
+    setAiPulseOn(true);
+    pulseTimer.current = setTimeout(() => setAiPulseOn(false), 2600);
+  };
+  useEffect(() => () => { if (pulseTimer.current) clearTimeout(pulseTimer.current); }, []);
+
   const handleAI = (feature) => {
     switch (feature) {
-      case "optimize":   // AI 一键优化 → 弹 modal 选目标字段(本轮先弹提示)
-        setError("💡 AI 一键优化:请把光标放到画布的某个字段上,点悬浮工具条中的 AI 按钮针对该字段优化。");
+      case "optimize":   // AI 一键优化 → 引导点击字段,触发悬浮工具条
+        setError("💡 点击画布中想要打磨的字段(个人简介 / 经历要点 / 技能),该字段上方会弹出 AI 工具条,可一键润色、重写或转 STAR。");
+        triggerAiPulse();
         break;
-      case "beautify":    // 简历美化 → 切换主题/模板提示
-        setError("💡 简历美化:在右侧抽屉切换模板,或到「模板主题」页调整主色调与字体。");
+      case "beautify":    // 简历美化 → 直接打开右侧抽屉并切到「切换模板」
+        setDrawerOpen(true);
+        setDrawerTabReq((p) => ({ tab: "templates", tick: p.tick + 1 }));
         break;
       case "analyze":    // 智能分析 → 跳 JD 诊断
         navigate("/ats");
@@ -440,6 +585,47 @@ export default function Editor() {
         break;
     }
   };
+
+  /* 悬浮工具条按钮集(按字段类型) */
+  const aiActionsOf = (ctx) => {
+    if (!ctx) return [];
+    const i = ctx.i;
+    const perExp = [
+      { id: "bullets", label: "✨ 要点整段", title: "根据该段经历重新生成 3-5 条要点" },
+      { id: "star", label: "⭐ STAR 整段", title: "把该段要点改写成 STAR 结构" },
+    ];
+    if (ctx.k === "field" && ctx.f === "summary") {
+      return [
+        { id: "gen_summary", label: "✨ 生成简介", title: "AI 按姓名/目标职位/技能生成一段新简介" },
+        { id: "polish", label: "🪄 润色现有", title: "重写语言与结构,不新增事实" },
+      ];
+    }
+    if (ctx.k === "field" && ctx.f === "skills") {
+      return [{ id: "polish", label: "🪄 智能整理", title: "统一分隔、去重、按相关度排序,不新增技能" }];
+    }
+    if (ctx.k === "bullet") {
+      return [
+        { id: "polish", label: "🪄 润色本句", title: "只改语言与结构,保留数字与事实" },
+        ...perExp,
+      ];
+    }
+    if (ctx.k === "exp") return perExp;
+    return [];
+  };
+  const aiBusyKeyOf = (ctx, id) => {
+    if (id === "gen_summary") return "summary";
+    if (id === "polish") return "polish";
+    if (id === "bullets") return `bullets:${ctx?.i}`;
+    if (id === "star") return `star:${ctx?.i}`;
+    return null;
+  };
+
+  /* ===== 画布焦点 → 字段级悬浮工具条 ===== */
+  const handlePaperFocus = (e) => {
+    const t = e.target;
+    if (t && t.closest && t.closest('[data-ai]')) openFieldAI(t.closest('[data-ai]'));
+  };
+  const handlePaperBlur = () => setFieldAI(null);
 
   const handleDownload = () => navigate("/download");
 
@@ -479,7 +665,11 @@ export default function Editor() {
       />
 
       <div className={`editor-stage${drawerOpen ? " drawer-open" : ""}`}>
-        <div className="editor-canvas-wrap">
+        <div
+          className="editor-canvas-wrap"
+          ref={wrapRef}
+          onScroll={fieldAI ? repositionFieldAI : undefined}
+        >
           {error && (
             <div className="editor-canvas-banner notice notice-warn">
               {error}
@@ -493,12 +683,12 @@ export default function Editor() {
             <span className="editor-progress-text">{progress}% 已完成</span>
           </div>
 
-          {/* 画布:左页码 + 中白纸 + 右工具条(添加/AI 字段级操作) */}
+          {/* 画布:页码/工具 + 白纸(可分页)+ 字段级 AI 悬浮工具条 */}
           <div className="editor-canvas">
             <div className="canvas-pages">
               <div className="canvas-page-indicator">
                 <span className="active">1</span>
-                <span className="total">/1</span>
+                <span className="total">/{pageCount}</span>
               </div>
               <div className="canvas-page-tools">
                 <button
@@ -514,65 +704,81 @@ export default function Editor() {
                 <button
                   className="canvas-page-tool canvas-page-tool-ai"
                   onClick={generateSummary}
-                  disabled={loadingStates.summary}
+                  disabled={isBusy("summary")}
                   title="AI 生成个人简介"
                 >
-                  {loadingStates.summary ? "生成中..." : "✨ AI 简介"}
+                  {isBusy("summary") ? "生成中..." : "✨ AI 简介"}
                 </button>
               </div>
             </div>
 
-            <div
-              className="canvas-paper"
-              style={{
-                padding: currentSettings.typography.margin,
-                fontSize: currentSettings.typography.fontSize,
-                lineHeight: currentSettings.typography.lineHeight,
-                textAlign: currentSettings.typography.align,
-              }}
-            >
-              <PreviewComponent
-                resume={resume}
-                settings={currentSettings}
-                onUpdateField={updateField}
-                onUpdateExperience={updateExperience}
-                onUpdateBullet={updateBullet}
-                onUpdateEducation={updateEducation}
-              />
-            </div>
+            <div className="canvas-sheet-area">
+              <div
+                ref={paperRef}
+                className={`canvas-paper${aiPulseOn ? " ai-pulse" : ""}`}
+                data-align={currentSettings.typography.align}
+                onFocusCapture={handlePaperFocus}
+                onBlurCapture={handlePaperBlur}
+                style={{
+                  padding: currentSettings.typography.margin,
+                  fontSize: currentSettings.typography.fontSize,
+                  lineHeight: currentSettings.typography.lineHeight,
+                }}
+              >
+                <PreviewComponent
+                  resume={resume}
+                  settings={currentSettings}
+                  onUpdateField={updateField}
+                  onUpdateExperience={updateExperience}
+                  onUpdateBullet={updateBullet}
+                  onUpdateEducation={updateEducation}
+                />
 
-            {/* AI 操作面板(字段级 AI 入口 —— 本轮保留,后续加悬浮工具条) */}
-            <div className="canvas-ai-panel">
-              <h4>字段级 AI</h4>
-              <p className="canvas-ai-hint">
-                点击工作经历条目右侧的 AI 按钮,可针对该段经历生成要点 / 转 STAR。
-              </p>
-              <div className="canvas-ai-exp-list">
-                {resume.experiences.map((exp, i) => (
-                  (exp.company || exp.role) && (
-                    <div key={i} className="canvas-ai-exp">
-                      <span className="canvas-ai-exp-name">
-                        {exp.role || "新职位"} · {exp.company || "新公司"}
-                      </span>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => generateBulletsForExp(i)}
-                        disabled={loadingStates.bullets[i]}
-                      >
-                        {loadingStates.bullets[i] ? "生成中..." : "✨ 要点"}
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => convertToSTAR(i)}
-                        disabled={loadingStates.star[i]}
-                      >
-                        {loadingStates.star[i] ? "转换中..." : "⭐ STAR"}
-                      </button>
-                    </div>
-                  )
+                {/* 长简历分页线(连续流预览,与 Word 分页语义一致) */}
+                {pageCount > 1 && Array.from({ length: pageCount - 1 }, (_, k) => (
+                  <div
+                    key={k}
+                    className="page-rule"
+                    aria-hidden="true"
+                    style={{ top: (k + 1) * pageH, left: currentSettings.typography.margin, right: currentSettings.typography.margin }}
+                  >
+                    <span className="page-rule-chip">第 {k + 2} 页</span>
+                  </div>
                 ))}
               </div>
             </div>
+
+            {/* 字段级 AI 悬浮工具条 */}
+            {fieldAI && (
+              <div
+                className="field-ai-bar"
+                role="toolbar"
+                aria-label="字段级 AI 工具"
+                style={{ top: fieldAI.top, left: fieldAI.left }}
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <span className="field-ai-badge" aria-hidden="true">✨</span>
+                <div className="field-ai-btns">
+                  {aiActionsOf(fieldAI.ctx).map((a) => {
+                    const busyKey = aiBusyKeyOf(fieldAI.ctx, a.id);
+                    const running = !!busyKey && isBusy(busyKey);
+                    const anyBusy = Object.keys(busy).some((k) => busy[k]);
+                    return (
+                      <button
+                        key={a.id}
+                        className="field-ai-btn"
+                        title={a.title}
+                        disabled={anyBusy}
+                        onClick={() => runFieldAI(a.id)}
+                      >
+                        {running ? "⏳ 处理中…" : a.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button className="field-ai-close" onClick={() => setFieldAI(null)} aria-label="关闭 AI 工具条">×</button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -583,8 +789,10 @@ export default function Editor() {
           currentTemplateId={templateId}
           onSelectTemplate={handleSelectTemplate}
           settings={currentSettings}
-          orderSupported={ORDER_SUPPORTED_TEMPLATES.has(templateId)}
+          zones={zonesFor(templateId)}
           onSettingsChange={updateSettings}
+          requestedTab={drawerTabReq.tab}
+          tabRequestTick={drawerTabReq.tick}
         />
       </div>
     </section>

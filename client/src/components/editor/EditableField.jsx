@@ -22,6 +22,7 @@ export default function EditableField({
   style,
   as: As = "span",
   ariaLabel,
+  ai = null, // { k: 'field'|'exp'|'bullet', f?, i?, bi? } —— 用于字段级 AI 悬浮工具条
 }) {
   const ref = useRef(null);
   const lastCommittedRef = useRef(value ?? "");
@@ -79,6 +80,7 @@ export default function EditableField({
       aria-label={ariaLabel || placeholder || "可编辑文本"}
       data-empty={(value ?? "") === "" ? "true" : "false"}
       data-placeholder={placeholder}
+      data-ai={ai ? JSON.stringify(ai) : undefined}
       className={`editable-field ${className}`}
       style={style}
       onBlur={commit}

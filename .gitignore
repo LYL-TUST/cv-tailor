@@ -50,3 +50,6 @@ client/build*/
 
 # WorkBuddy workspace memory
 .workbuddy/
+
+# Local verification screenshots
+shots/

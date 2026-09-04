@@ -30,6 +30,7 @@ const NAV_GROUPS = [
     items: [
       { to: "/ats", icon: "🎯", label: "JD 诊断" },
       { to: "/interview", icon: "🎤", label: "模拟面试" },
+      { to: "/cover-letter", icon: "✉️", label: "求职信" },
       { to: "/download", icon: "📄", label: "导出下载" },
     ],
   },

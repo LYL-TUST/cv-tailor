@@ -84,6 +84,26 @@ export async function fillGaps({ gapPeriod, reason }) {
   });
 }
 
+/**
+ * Field-level polish: rewrite language/structure only, keep facts intact
+ */
+export async function polishText({ text, kind = 'bullet' }) {
+  return fetchAPI('/api/ai/polish-text', {
+    method: 'POST',
+    body: JSON.stringify({ text, kind }),
+  });
+}
+
+/**
+ * Generate a cover letter from resume facts + optional job description
+ */
+export async function generateCoverLetter({ fullName, title, company, jd, summary, skills, experienceBrief }) {
+  return fetchAPI('/api/ai/cover-letter', {
+    method: 'POST',
+    body: JSON.stringify({ fullName, title, company, jd, summary, skills, experienceBrief }),
+  });
+}
+
 // ==================== ATS Analyzer APIs ====================
 
 /**

@@ -5,6 +5,7 @@ import Editor from "./pages/Editor";
 import Templates from "./pages/Templates";
 import ATS from "./pages/ATS";
 import Interview from "./pages/Interview";
+import CoverLetter from "./pages/CoverLetter";
 import Download from "./pages/Download";
 import Dashboard from "./pages/Dashboard";
 import Import from "./pages/Import";
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/templates" element={<Templates />} />
         <Route path="/ats" element={<ATS />} />
         <Route path="/interview" element={<Interview />} />
+        <Route path="/cover-letter" element={<CoverLetter />} />
         <Route path="/download" element={<Download />} />
         <Route path="/import" element={<Import />} />
         <Route path="/me" element={<Me />} />

@@ -18,15 +18,16 @@ const ClassyPreview = ({
     onUpdateEducation,
 }) => {
     const F = (field, placeholder, multiline = false) => onUpdateField
-        ? <EditableField value={resume[field] ?? ''} onChange={(v) => onUpdateField(field, v)} placeholder={placeholder} multiline={multiline} />
+        ? <EditableField value={resume[field] ?? ''} onChange={(v) => onUpdateField(field, v)} placeholder={placeholder} multiline={multiline}
+            ai={(field === 'summary' || field === 'skills') ? { k: 'field', f: field } : null} />
         : (resume[field] || placeholder);
 
     const Tx = (ei, field, placeholder) => onUpdateExperience
-        ? <EditableField value={resume.experiences[ei][field] ?? ''} onChange={(v) => onUpdateExperience(ei, field, v)} placeholder={placeholder} />
+        ? <EditableField value={resume.experiences[ei][field] ?? ''} onChange={(v) => onUpdateExperience(ei, field, v)} placeholder={placeholder} ai={{ k: 'exp', i: ei }} />
         : (resume.experiences[ei][field] || placeholder);
 
     const Tb = (ei, bi, value) => onUpdateBullet
-        ? <EditableField value={value} onChange={(v) => onUpdateBullet(ei, bi, v)} placeholder="• 输入要点" />
+        ? <EditableField value={value} onChange={(v) => onUpdateBullet(ei, bi, v)} placeholder="• 输入要点" ai={{ k: 'bullet', i: ei, bi }} />
         : value;
 
     const Ed = (i, field, placeholder) => onUpdateEducation
