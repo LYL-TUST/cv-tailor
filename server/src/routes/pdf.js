@@ -76,6 +76,7 @@ Example puppeteer code would go here.
 });
 
 // Generate DOCX (Word document) —— 真实生成：docx 库构建文档，返回二进制流
+// 支持 resumeData.settings：moduleOrder/moduleVisible(模块输出) + typography(字号/行距/对齐/页边距)
 router.post("/generate-docx", async (req, res) => {
     try {
         const { resumeData } = req.body;
@@ -83,27 +84,102 @@ router.post("/generate-docx", async (req, res) => {
             return res.status(400).json({ error: "Resume data is required" });
         }
 
+        /* ===== settings(缺省即默认) ===== */
+        const st = resumeData.settings || {};
+        const typo = st.typography || {};
+        const visible = st.moduleVisible || {};
+        const order = Array.isArray(st.moduleOrder) ? st.moduleOrder : null;
+
+        // 字号:前端语义 11/13/15 → docx half-points(10/12/14pt)
+        const FS_HALF = { 11: 20, 13: 24, 15: 28 };
+        const bodySize = FS_HALF[typo.fontSize] || 24;
+        // 行距:1.x → spacing.line(240 = 1.0)
+        const line = typo.lineHeight ? Math.round(typo.lineHeight * 240) : undefined;
+        const spacingOpts = line ? { line, lineRule: "auto" } : {};
+        // 对齐
+        const ALIGN = {
+            left: AlignmentType.LEFT,
+            justify: AlignmentType.JUSTIFIED,
+            center: AlignmentType.CENTER,
+        };
+        const align = ALIGN[typo.align] || AlignmentType.LEFT;
+        // 页边距:前端画布 padding 24/38/54 → docx twips(近似 A4 边距)
+        const MARGIN_TW = { 24: 720, 38: 1080, 54: 1440 };
+        const marginTw = MARGIN_TW[typo.margin] ?? 1080;
+
         const info = resumeData.personalInfo || {};
         const contactLine = [
             info.email, info.phone, info.location, info.linkedin,
         ].filter(Boolean).join("  |  ");
 
-        const sections = [];
+        const has = (x) => Array.isArray(x) ? x.length > 0 : Boolean(x);
+        const visOn = (id) => visible[id] !== false; // 默认可见
 
-        /* 抬头 */
+        /* ===== 章节生成器 ===== */
+        const genSummary = () => [
+            new Paragraph({ text: "个人简介", heading: HeadingLevel.HEADING_3, spacing: { before: 240, after: 120 } }),
+            new Paragraph({ children: [new TextRun({ text: resumeData.summary, size: bodySize })], spacing: spacingOpts, alignment: align }),
+        ];
+
+        const genSkills = () => [
+            new Paragraph({ text: "专业技能", heading: HeadingLevel.HEADING_3, spacing: { before: 240, after: 120 } }),
+            new Paragraph({ children: [new TextRun({ text: resumeData.skills.join("、"), size: bodySize })], spacing: spacingOpts, alignment: align }),
+        ];
+
+        const genExperience = () => {
+            const out = [];
+            out.push(new Paragraph({ text: "工作经历", heading: HeadingLevel.HEADING_3, spacing: { before: 240, after: 120 } }));
+            resumeData.experience.forEach((exp) => {
+                const titleLine = [exp.position, exp.company, exp.duration].filter(Boolean).join("  |  ");
+                out.push(new Paragraph({
+                    children: [new TextRun({ text: titleLine || "经历", bold: true, size: bodySize })],
+                    spacing: { before: 160, ...spacingOpts },
+                }));
+                (exp.bullets || []).filter((b) => b.trim()).forEach((b) => {
+                    out.push(new Paragraph({
+                        children: [new TextRun({ text: b, size: bodySize })],
+                        bullet: { level: 0 },
+                        spacing: spacingOpts,
+                        alignment: align,
+                    }));
+                });
+            });
+            return out;
+        };
+
+        const genEducation = () => {
+            const out = [];
+            out.push(new Paragraph({ text: "教育背景", heading: HeadingLevel.HEADING_3, spacing: { before: 240, after: 120 } }));
+            resumeData.education.forEach((edu) => {
+                const eduLine = [edu.school, edu.degree, edu.field, edu.graduationYear].filter(Boolean).join("  |  ");
+                if (eduLine) {
+                    out.push(new Paragraph({
+                        children: [new TextRun({ text: eduLine, size: bodySize })],
+                        spacing: spacingOpts,
+                        alignment: align,
+                    }));
+                }
+            });
+            return out;
+        };
+
+        const GENERATORS = {
+            summary: { on: visOn("summary") && has(resumeData.summary), gen: genSummary },
+            skills: { on: visOn("skills") && has(resumeData.skills), gen: genSkills },
+            experience: { on: visOn("experience") && has(resumeData.experience), gen: genExperience },
+            education: { on: visOn("education") && has(resumeData.education), gen: genEducation },
+        };
+        // 默认顺序(与前端 CONTENT_MODULES 默认一致)
+        const DEFAULT_ORDER = ["summary", "experience", "education", "skills"];
+        const moduleSeq = (order && order.length === 4) ? order : DEFAULT_ORDER;
+
+        /* ===== 组装 ===== */
+        const sections = [];
         if (info.name) {
-            sections.push(new Paragraph({
-                text: info.name,
-                heading: HeadingLevel.HEADING_1,
-                alignment: AlignmentType.CENTER,
-            }));
+            sections.push(new Paragraph({ text: info.name, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }));
         }
         if (info.title) {
-            sections.push(new Paragraph({
-                text: info.title,
-                heading: HeadingLevel.HEADING_2,
-                alignment: AlignmentType.CENTER,
-            }));
+            sections.push(new Paragraph({ text: info.title, heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER }));
         }
         if (contactLine) {
             sections.push(new Paragraph({
@@ -113,54 +189,27 @@ router.post("/generate-docx", async (req, res) => {
             }));
         }
 
-        /* 章节辅助 */
-        const heading = (text) => new Paragraph({
-            text,
-            heading: HeadingLevel.HEADING_3,
-            spacing: { before: 240, after: 120 },
+        moduleSeq.forEach((id) => {
+            const m = GENERATORS[id];
+            if (m && m.on) sections.push(...m.gen());
         });
-        const body = (text) => new Paragraph({ children: [new TextRun(text)] });
-        const bullet = (text) => new Paragraph({ text, bullet: { level: 0 } });
-
-        if (resumeData.summary) {
-            sections.push(heading("个人简介"));
-            sections.push(body(resumeData.summary));
-        }
-
-        if (resumeData.skills?.length > 0) {
-            sections.push(heading("专业技能"));
-            sections.push(body(resumeData.skills.join("、")));
-        }
-
-        if (resumeData.experience?.length > 0) {
-            sections.push(heading("工作经历"));
-            resumeData.experience.forEach((exp) => {
-                const titleLine = [exp.position, exp.company, exp.duration].filter(Boolean).join("  |  ");
-                sections.push(new Paragraph({
-                    children: [new TextRun({ text: titleLine || "经历", bold: true })],
-                    spacing: { before: 160 },
-                }));
-                (exp.bullets || []).filter(b => b.trim()).forEach((b) => sections.push(bullet(b)));
-            });
-        }
-
-        if (resumeData.education?.length > 0) {
-            sections.push(heading("教育背景"));
-            resumeData.education.forEach((edu) => {
-                const eduLine = [edu.school, edu.degree, edu.field, edu.graduationYear].filter(Boolean).join("  |  ");
-                if (eduLine) sections.push(body(eduLine));
-            });
-        }
 
         const doc = new Document({
             styles: {
                 default: {
-                    document: { run: { font: "Microsoft YaHei", size: 21 } },
+                    document: { run: { font: "Microsoft YaHei", size: bodySize } },
                 },
             },
             sections: [{
-                properties: {},
-                children: sections.length > 0 ? sections : [body("空简历")],
+                properties: {
+                    page: {
+                        margin: {
+                            top: marginTw, right: marginTw,
+                            bottom: marginTw, left: marginTw,
+                        },
+                    },
+                },
+                children: sections.length > 0 ? sections : [new Paragraph({ children: [new TextRun({ text: "空简历" })] })],
             }],
         });
 

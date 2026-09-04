@@ -337,3 +337,78 @@
     border-radius: 14px;
     box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
 }
+/* ========================================
+   RESUME PHOTO SLOT (证件照预留入口)
+   ======================================== */
+
+/* 通用底座:照片槽在编辑态下默认横向排列不破坏模板流 */
+.resume-photo {
+    display: flex;
+    justify-content: center;
+}
+
+/* 只读态(Download/导出预览):统一圆角白框 */
+.resume-photo-static img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    border-radius: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.10);
+}
+
+/* Professional:侧栏顶部,姓名上方(证件照大小 84×112) */
+.resume-card-professional .sidebar .resume-photo {
+    justify-content: center;
+    margin-bottom: 12px;
+}
+.resume-card-professional .sidebar .resume-photo .editable-photo,
+.resume-card-professional .sidebar .resume-photo-static {
+    width: 84px;
+    height: 112px;
+}
+
+/* Classy:顶部姓名上方居中(证件照大小 84×112) */
+.resume-card-classy > .resume-photo {
+    justify-content: center;
+    margin-bottom: 14px;
+}
+.resume-card-classy > .resume-photo .editable-photo,
+.resume-card-classy > .resume-photo-static {
+    width: 84px;
+    height: 112px;
+}
+
+/* Simple:header 左侧,与姓名横排(小照 56×74) */
+.resume-card-simple .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+.resume-card-simple .header-left h1 {
+    margin: 0;
+}
+.resume-card-simple .header .resume-photo .editable-photo,
+.resume-card-simple .header .resume-photo-static {
+    width: 56px;
+    height: 74px;
+    flex-shrink: 0;
+}
+
+/* Stylish:深蓝页眉右侧垂直居中(证件照大小 72×96) */
+.resume-card-stylish .header-bar {
+    position: relative;
+}
+.resume-card-stylish .header-bar .resume-photo {
+    position: absolute;
+    right: 36px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+.resume-card-stylish .header-bar .resume-photo.editable-photo,
+.resume-card-stylish .header-bar .resume-photo-static {
+    width: 72px;
+    height: 96px;
+}
