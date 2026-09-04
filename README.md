@@ -1,173 +1,172 @@
+# CV-Tailor · 简历智造
 
-# AI 简历创作助手 🚀
+> 一个**本地优先**的全栈 AI 简历产品:导入旧简历 → AI 打磨 → 按 JD 逐条诊断 → 模拟面试 → 导出投递。
+> 不做账号也能完整使用;登录仅用于端到端加密的跨设备云同步。
 
-一个现代化的全栈 AI 简历制作应用,帮助学生与求职者在几分钟内产出 **ATS 友好**的专业简历。技术栈:**React 19** + **Node.js** + **OpenAI GPT-4**。
-
-![项目状态](https://img.shields.io/badge/Status-Complete-success)
-![技术栈](https://img.shields.io/badge/Stack-MERN-blue)
-
-## 🌟 项目概述
-
-本项目解决简历创作中的两大痛点:**"无从下笔"** 与 **"排版噩梦"**。用生成式 AI 负责内容产出、React 负责实时渲染,用户无需再与 Word 格式搏斗,即可生成专业、能通过 ATS 机器初筛的简历。
-
-**核心理念:隐私优先。** 所有用户数据仅存于浏览器 `LocalStorage`,不落任何中央数据库,隐私完全由用户掌控。
-
----
-
-## 🚀 核心功能
-
-### 1. 简历导入(`/import`)
-- **冷启动加速:** 上传已有的 PDF / Word(.docx)简历,自动提取文本。
-- **AI 结构化抽取:** LLM 将简历原文解析为结构化数据(temperature 0.1 + Zod 强校验),一键预填编辑器。
-- **诚实性护栏:** Prompt 严禁编造原文不存在的信息,识别缺失字段时给出核对清单。
-
-### 2. 智能 AI 编辑器(`/editor`)
-- **实时预览:** 分屏布局,所见即所得。
-- **多版本管理:** 按公司/岗位各存一版简历,支持新建空白版、复制当前版、切换、重命名、删除。
-- **AI 能力:**
-    - **个人简介生成:** 基于目标职位生成专业简介。
-    - **经历要点生成:** 产出量化、成就导向的要点。
-    - **STAR 结构化:** 把流水账职责改写为 STAR 结构。
-    - **履历空白补充:** AI 为职业空窗期提供专业的解释建议。
-
-### 3. 智能模板(支持主题定制)
-- **动态渲染:** 模板不是静态图片,而是随内容长度自适应的 **React 组件**。
-- **条件渲染:** 智能隐藏空区块(如"工作经历"为空时,对应标题一并隐藏)。
-- **主题定制:** 8 种主色调 × 3 种字体族(CSS 变量全局生效),编辑器预览与导出同步。
-- **内置 4 套模板:**
-    - 👔 **商务双栏(Professional):** 双栏布局,侧边栏联系方式。
-    - 🎩 **经典居中(Classy):** 传统居中版式,优雅衬线字体。
-    - 📝 **极简单栏(Simple):** 简约高可读性排版。
-    - 🎨 **优雅深蓝(Stylish):** 深蓝页眉搭配金色点缀的现代设计。
-
-### 4. ATS 匹配诊断(`/ats`)
-- 将简历与目标 JD 对比分析,输出"匹配分"与缺失关键词建议。
-- **语义级匹配:** 逐条 JD 职责做语义分析,而非仅关键词比对。
-- **建议质量校验(verify-suggestions):** 独立校验 AI 建议是否相关/具体/诚实,防止简历造假导向。
-
-### 5. 模拟面试(`/interview`)
-- 按目标岗位生成面试题,评估用户答案,并给出面试技巧。
-
-### 6. 多格式导出(`/download`)
-- **所见即所得 PDF:** 基于 `html2canvas` + `jsPDF` 捕获 DOM 渲染结果,下载的 PDF 与预览**完全一致**(字体、配色、排版)。
-- **Word(DOCX)导出:** 后端 `docx` 库真实生成,可继续编辑。
-- **纯文本导出:** 兜底格式。
-
-### 7. 本地数据看板(`/analytics`)
-- **隐私埋点:** 设备假 ID + 匿名事件,数据仅存本地、零上传、可一键清空/导出。
-- **漏斗视图:** 页面访问 → AI 生成 → ATS 分析 → 导出 PDF 的全链路转化。
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+![Node](https://img.shields.io/badge/Node-%3E%3D18-339933)
+![React](https://img.shields.io/badge/React-19-61dafb)
+![Vite](https://img.shields.io/badge/Vite-7-646cff)
+![Express](https://img.shields.io/badge/Express-4-000)
+![SQLite](https://img.shields.io/badge/SQLite-better--sqlite3-003b57)
+![AI](https://img.shields.io/badge/LLM-OpenAI_Compatible-2563eb)
 
 ---
 
-## 🛠️ 技术架构
+## 🧭 一句话定位
 
-### 前端(Client)
-- **框架:** React 19 + Vite(原生 ES Module,启动快)。
-- **状态管理:**
-    - **状态提升:** `Editor` 组件作为唯一数据源(Source of Truth),向表单与预览组件单向传递。
-    - **LocalStorage:** 通过 `useEffect` 在挂载时加载、变更时持久化;多版本数据由 `resumeStore.js` 统一管理(含旧数据自动迁移与写穿兼容)。
-- **样式:**
-    - **纯 CSS:** 不依赖 Bootstrap/Tailwind,使用现代 CSS Grid 与 Flexbox 构建轻量自定义设计系统。
-    - **响应式:** 移动优先 + 媒体查询。
-    - **主题系统:** CSS 变量注入(`theme.js`),模板层与页面层解耦。
+**AI 不替你编,只帮你把经历裁剪得正好贴合目标 JD。**
 
-### 后端(Server)
-- **运行时:** Node.js + Express。
-- **安全:**
-    - **Helmet:** 设置安全的 HTTP 响应头。
-    - **CORS:** 限制 API 仅可从前端域名访问。
-    - **限流:** 防止 API 滥用。
-- **AI 引擎:**
-    - 精心设计的 System Prompt 强制 OpenAI 返回合法 JSON Schema。
-    - 使用 `Zod` 校验 AI 响应,防止脏数据导致前端崩溃。
-- **文档解析:** `pdf-parse`(PDF 文本提取)+ `mammoth`(DOCX 文本提取),文件仅驻内存、不落盘。
+市面上的简历工具,要么是"填空模板",要么是"AI 代写"——前者不会帮你表达,后者会替你编造。
+CV-Tailor 走第三条路:**导入你的真实经历 → AI 只做结构化、量化、措辞打磨 → 贴住岗位 JD 逐条诊断 → 每条建议都经过真实性校验**。数据默认只存在你的浏览器里。
 
 ---
 
-## 💻 安装与启动
+## ✨ 核心功能
 
-### 前置要求
-- Node.js 18+
-- OpenAI API Key
+| 模块 | 说明 |
+|---|---|
+| 📥 **简历导入** `/import` | 上传 PDF / Word,AI 自动结构化提取并预填编辑器;文件仅驻内存解析,不落盘、不存服务器 |
+| ✏️ **AI 编辑器** `/editor` | 左右分屏实时预览;**多版本管理**(按公司/岗位各存一版);AI 生成个人简介、量化经历要点、STAR 结构化 |
+| 🎨 **模板与主题** `/templates` | 4 套 ATS 友好模板(React 组件动态渲染,空区块自动隐藏)× 8 主色 × 3 字体族,实时预览 |
+| 🎯 **JD 匹配诊断** `/ats` | 关键词层 + **语义级逐条职责**双栈分析;建议经独立 verifier 校验"相关 / 可执行 / 不诱导编造" |
+| 🎤 **模拟面试** `/interview` | 按目标岗位出题,AI 逐题评估答案质量,历史会话可回看 |
+| 📄 **导出投递** `/download` | 所见即所得 PDF(html2canvas + jsPDF)、真实 DOCX(后端 `docx` 库)、纯文本 |
+| 👤 **个人中心** `/me` | 本地历史管理、加密备份导出/恢复、**登录后端到端加密云同步**(服务器只存密文) |
+| 📊 **数据看板** `/analytics` | 本地隐私埋点(设备假 ID、零上传),演示"埋点 → 漏斗 → 决策"数据闭环 |
 
-### 1. 克隆仓库
+---
+
+## 🏗️ 关键设计
+
+1. **隐私优先是产品定位,不是功能点**
+   默认零注册、数据全在 `localStorage`;登录是**可选项**,仅用于跨设备同步,上传前在浏览器端用密码派生密钥加密(PBKDF2 + AES-GCM),服务器无法解密;密码即钥匙,忘记无法找回。
+
+2. **对抗"AI 简历造假"——真实性护栏**
+   - 导入的 Prompt 温度 0.1 + Zod 强校验,严禁编造原文不存在的信息,缺字段输出核对清单
+   - ATS 的每条改进建议都经独立模型校验是否"诚实",不诱导用户无中生有
+   - 前端所有生成按钮旁都标注"需你确认事实"
+
+3. **分层可演进的架构**
+   前端以组件驱动的多版本 store 为中心,主题用 CSS 变量注入实现预览/导出一致;后端路由与 LLM/解析逻辑解耦,便于替换模型供应商(OpenAI 兼容协议,实测可跑 DeepSeek)。
+
+---
+
+## 🛠️ 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 前端 | React 19 · Vite 7 · React Router · 纯 CSS 设计系统(mobile-first,零 UI 框架依赖) |
+| 后端 | Node.js · Express · Helmet · CORS · express-rate-limit |
+| AI | OpenAI 兼容客户端(`/v1/chat/completions`),供应商可替换 |
+| 解析/导出 | pdf-parse · mammoth · multer · docx |
+| 数据 | 浏览器 localStorage + better-sqlite3(WAL) |
+| 安全 | scrypt 密码哈希 · HMAC-SHA256 无状态令牌 · AES-GCM 端到端加密 |
+
+---
+
+## 🚀 本地快速开始
+
 ```bash
-git clone https://github.com/jkj05/ai_resume_builder.git
-cd ai_resume_builder
-```
-
-### 2. 启动后端
-```bash
+# 1. 后端(端口 5000)
 cd server
 npm install
-# 创建 .env 文件
-echo "PORT=5000\nOPENAI_API_KEY=你的API密钥" > .env
+cp .env.example .env        # 填入 OPENAI_API_KEY(OpenAI 兼容供应商均可)
 npm run dev
-```
 
-### 3. 启动前端
-```bash
-cd client
+# 2. 前端(端口 5173)
+cd ../client
 npm install
 npm run dev
 ```
 
-打开 [http://localhost:5173](http://localhost:5173) 即可使用。
+浏览器打开 **http://localhost:5173** 即可。后端 `.env` 示例见 `server/.env.example`;不登录即完整可用,登录仅用于云同步。
 
 ---
 
 ## 📁 目录结构
 
 ```
-client/src/
-├── components/
-│   ├── templates/       # 4 套核心简历模板(React 组件)
-│   │   ├── ProfessionalTemplate.jsx
-│   │   ├── ClassyTemplate.jsx
-│   │   ├── SimpleTemplate.jsx
-│   │   └── StylishTemplate.jsx
-│   └── Navbar.jsx
-├── pages/
-│   ├── Editor.jsx       # 简历编辑器(状态中枢 + 多版本管理条)
-│   ├── Import.jsx       # 简历导入(上传 → AI 结构化 → 预填)
-│   ├── Analytics.jsx    # 本地数据看板(漏斗/事件)
-│   ├── Download.jsx     # PDF / DOCX / TXT 导出
-│   └── Landing.jsx      # 落地页
-├── utils/
-│   ├── analytics.js     # 本地隐私埋点(设备假 ID + 事件存储)
-│   ├── resumeStore.js   # 多版本简历存储(迁移/切换/写穿)
-│   ├── theme.js         # 主题定制(CSS 变量注入)
-│   └── api.js           # 后端 API 客户端
-└── App.jsx              # 路由配置
-
-server/src/
-├── routes/
-│   ├── ai.js            # AI 生成(简介/要点/STAR/补空)
-│   ├── ats.js           # ATS 诊断(基础分/语义匹配/建议校验)
-│   ├── import.js        # 简历导入(multer + pdf-parse/mammoth + LLM 结构化)
-│   ├── interview.js     # 模拟面试
-│   ├── pdf.js           # DOCX 真实生成
-│   └── templates.js     # 模板元数据
-└── services/
-    └── openaiClient.js  # OpenAI 客户端
+.
+├── client/src
+│   ├── components/
+│   │   ├── Layout.jsx        # 左侧边栏应用壳(分组导航 + 移动端抽屉)
+│   │   ├── PageHead.jsx      # 内页统一页头
+│   │   └── templates/        # 4 套简历模板(React 组件)
+│   ├── pages/
+│   │   ├── Dashboard.jsx     # 首页工作台(欢迎区 + 快捷入口)
+│   │   ├── Editor.jsx        # 简历编辑器(多版本 + AI 写作)
+│   │   ├── Import.jsx        # 简历导入(拖拽上传 + AI 结构化)
+│   │   ├── Templates.jsx     # 模板与主题定制
+│   │   ├── ATS.jsx           # JD 匹配诊断
+│   │   ├── Interview.jsx     # 模拟面试
+│   │   ├── Download.jsx      # PDF / DOCX / TXT 导出
+│   │   ├── Me.jsx            # 个人中心(历史/备份/云同步)
+│   │   └── Analytics.jsx     # 本地数据看板
+│   ├── utils/
+│   │   ├── resumeStore.js    # 多版本简历本地存储
+│   │   ├── historyStore.js   # ATS / 面试历史
+│   │   ├── theme.js          # 主题定制(CSS 变量)
+│   │   ├── analytics.js      # 本地隐私埋点
+│   │   ├── backup.js         # AES-GCM 加密备份/恢复
+│   │   └── api.js            # 后端 API 客户端
+│   └── styles.css            # 设计系统(CSS 变量 + 应用壳 + 组件)
+└── server/src
+    ├── index.js              # Express 入口(错误/启动诊断)
+    ├── db.js                 # SQLite(WAL, users / vault)
+    ├── security.js           # scrypt + HMAC 令牌 + requireAuth
+    ├── routes/
+    │   ├── ai.js             # AI 写作(简介/要点/STAR/补空)
+    │   ├── ats.js            # ATS 诊断(基础/语义/建议校验)
+    │   ├── import.js         # 简历导入解析
+    │   ├── interview.js      # 模拟面试
+    │   ├── pdf.js            # DOCX 导出
+    │   ├── auth.js           # 注册/登录/me
+    │   └── vault.js          # 加密云同步(只存密文)
+    └── services/
+        └── openaiClient.js   # OpenAI 兼容客户端
 ```
 
 ---
 
-## 🔮 路线图
+## 📄 文档
 
-- [x] **核心:** AI 简历生成 + PDF 导出
-- [x] **模板:** 4 套专业模板 + 主题定制(主色调 × 字体)
-- [x] **隐私:** 纯 LocalStorage 实现,零数据上传
-- [x] **导入:** PDF/DOCX 上传 → AI 结构化 → 预填编辑器
-- [x] **多版本:** 按公司/岗位管理多份简历
-- [x] **数据闭环:** 本地隐私埋点 + 数据看板
-- [ ] **云端:** 可选云同步(opt-in,默认仍本地)
-- [ ] **多页:** 支持 2 页以上简历
-- [ ] **求职信:** AI 求职信(Cover Letter)生成器
+| 文档 | 内容 |
+|---|---|
+| [PRD](docs/PRD.md) | 产品需求文档:定位 / Persona / 竞品 / MoSCoW / 失败模式 / 事件规范 |
+| [架构与数据模型](docs/ER_DIAGRAM.md) | 前后端模块、存储键、多版本迁移 |
+| [方法论与框架](docs/METHODOLOGIES_AND_FRAMEWORKS.md) | 用到的产品/AI 方法论(面试可讲) |
+| [演示讲解脚本](docs/PRESENTATION_GUIDE.md) | 给面试官演示时的叙事脚本与问答准备 |
+| [功能测试报告](docs/功能测试报告-20260904.md) | 真实简历端到端测试:12/12 通过 |
+| [本地快速启动与排障](docs/QUICKSTART.md) | AI 配置、端口冲突排查 |
+| [部署说明](docs/DEPLOYMENT.md) | Render / Vercel 部署 |
+| [后端部署](docs/BACKEND_DEPLOYMENT.md) | 后端上线配置与故障排查 |
+| [Node 升级说明](docs/NODE_UPGRADE.md) | 环境升级记录 |
 
 ---
 
+## 🗺️ 路线图
+
+- [x] AI 写作(简介 / 要点 / STAR)+ 4 套模板与主题
+- [x] PDF / DOCX 真实导出
+- [x] 本地隐私埋点 + 数据看板
+- [x] PDF / Word 导入 → AI 结构化
+- [x] 多版本简历管理
+- [x] ATS 双栈诊断(关键词 + 语义)+ 建议真实性校验
+- [x] 个人中心:历史 / 加密备份 / 一键清空
+- [x] Phase 2:可选账号 + 端到端加密云同步(SQLite)
+- [ ] 求职信(Cover Letter)生成
+- [ ] 2 页以上长简历支持
+
+---
+
+## 🔒 隐私与安全
+
+- 默认本地:简历、ATS 记录、面试历史只存在于浏览器
+- 可选云同步:服务器只存 AES-GCM 密文,无解密能力
+- 埋点零上报、无 PII;一键导出/清空
+- 详见 [docs/PRD.md](docs/PRD.md) 隐私原则章节
+
 ## 📄 许可证
 
-MIT License,可自由用于学习用途。
+MIT License
