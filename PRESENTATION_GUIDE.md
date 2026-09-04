@@ -1,91 +1,94 @@
-# 🎓 AI Resume Builder - Presentation Guide
+# 🎓 AI 简历创作助手 - 演示讲解指南
 
-## Quick Reference for Your Presentation Tomorrow
-
----
-
-## 1. APPLICATION OVERVIEW (2 minutes)
-
-**What is it?**
-- AI-powered resume builder web application
-- Helps users create ATS-optimized resumes
-- Uses OpenAI for content generation
-
-**Key Features:**
-1. Resume Editor with live preview
-2. AI-powered content generation (summary, bullets, STAR format)
-3. ATS analyzer (match resume to job descriptions)
-4. Mock interview question generator
-5. PDF export
-6. Multiple professional templates
-
-**Tech Stack:**
-- **Frontend:** React, React Router, Vite, Tailwind CSS
-- **Backend:** Node.js, Express, OpenAI API
-- **Storage:** Browser localStorage (no database)
+## 演示前的快速参考手册
 
 ---
 
-## 2. ARCHITECTURE (3 minutes)
+## 1. 应用概述(2 分钟)
 
-### Application Flow
+**这是什么?**
+- AI 驱动的简历制作 Web 应用
+- 帮助用户产出 ATS 友好的简历
+- 使用 OpenAI 进行内容生成
+
+**核心功能:**
+1. 简历导入(PDF/Word 上传 → AI 结构化 → 预填编辑器)
+2. 简历编辑器 + 实时预览
+3. AI 内容生成(个人简介、经历要点、STAR 结构)
+4. ATS 匹配诊断(简历 vs 目标 JD)
+5. 模拟面试题目生成
+6. PDF / DOCX / TXT 导出
+7. 多套专业模板 + 主题定制(主色调 × 字体)
+8. 多版本简历管理
+9. 本地隐私埋点 + 数据看板
+
+**技术栈:**
+- **前端:** React、React Router、Vite、纯 CSS 设计系统
+- **后端:** Node.js、Express、OpenAI API
+- **存储:** 浏览器 localStorage(无数据库)
+
+---
+
+## 2. 架构(3 分钟)
+
+### 应用流程
 ```
-User Browser
+用户浏览器
     ↓
-index.html (Entry Point)
+index.html(入口)
     ↓
-main.jsx (React Bootstrap)
+main.jsx(React 启动)
     ↓
-App.jsx (Routing & Layout)
+App.jsx(路由与布局)
     ↓
-Pages (Landing, Editor, Templates, ATS, Interview, Download)
+各页面(Landing、Import、Editor、Templates、ATS、Interview、Download、Analytics)
 ```
 
-### Frontend ↔ Backend Communication
+### 前端 ↔ 后端通信
 ```
-React Component
+React 组件
     ↓
-api.js (API Client)
-    ↓ HTTP Request (JSON)
-Express Server (Backend)
+api.js(API 客户端)
+    ↓ HTTP 请求(JSON)
+Express 服务器(后端)
     ↓
 OpenAI API
-    ↓ Response
-React Component (Update UI)
+    ↓ 响应
+React 组件(更新 UI)
 ```
 
-### File Structure
+### 目录结构
 ```
 ai_resume_builder/
-├── client/ (Frontend)
-│   ├── index.html (Entry point)
+├── client/(前端)
+│   ├── index.html(入口)
 │   ├── src/
-│   │   ├── main.jsx (React bootstrap)
-│   │   ├── App.jsx (Routing)
-│   │   ├── pages/ (Landing, Editor, Templates, ATS, etc.)
-│   │   ├── components/ (Navbar, Footer, Button, Templates)
-│   │   └── utils/api.js (API client)
+│   │   ├── main.jsx(React 启动)
+│   │   ├── App.jsx(路由)
+│   │   ├── pages/(Landing、Editor、ATS、Import、Analytics 等)
+│   │   ├── components/(Navbar、Footer、Button、模板)
+│   │   └── utils/(api.js、analytics.js、resumeStore.js、theme.js)
 │   └── package.json
-└── server/ (Backend)
+└── server/(后端)
     ├── src/
-    │   ├── index.js (Server entry)
-    │   └── routes/ (ai.js, ats.js, interview.js, etc.)
+    │   ├── index.js(服务入口)
+    │   └── routes/(ai.js、ats.js、import.js、interview.js、pdf.js 等)
     └── package.json
 ```
 
 ---
 
-## 3. KEY FILES EXPLAINED
+## 3. 关键文件讲解
 
-### 📄 index.html (Entry Point)
+### 📄 index.html(入口)
 ```html
 <div id="root"></div>
 <script type="module" src="/src/main.jsx"></script>
 ```
-- Empty div where React app will render
-- Loads main.jsx to start React
+- 一个空的 div,React 应用将渲染在这里
+- 加载 main.jsx 启动 React
 
-### 📄 main.jsx (React Bootstrap)
+### 📄 main.jsx(React 启动)
 ```javascript
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -95,32 +98,34 @@ createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 ```
-- Connects React to the DOM
-- Wraps app in BrowserRouter for routing
-- StrictMode for development checks
+- 把 React 挂载到 DOM
+- 包裹 BrowserRouter 提供路由
+- StrictMode 用于开发期检查
+- 还会调用 `initTheme()` 恢复用户的主题定制
 
-### 📄 App.jsx (Routing)
+### 📄 App.jsx(路由)
 ```javascript
 <>
-  <Layout />  {/* Navbar - always visible */}
+  <Layout />  {/* Navbar - 始终可见 */}
   <main>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/editor" element={<Editor />} />
-      <Route path="/templates" element={<Templates />} />
-      {/* ... more routes */}
+      <Route path="/import" element={<Import />} />
+      {/* ...更多路由 */}
     </Routes>
   </main>
-  <Footer />  {/* Footer - always visible */}
+  <Footer />  {/* Footer - 始终可见 */}
 </>
 ```
-- Defines page structure
-- Routes map URLs to components
-- Navbar and Footer always visible
+- 定义页面结构
+- 路由把 URL 映射到组件
+- Navbar 与 Footer 始终可见
+- `PageViewTracker` 组件在路由切换时记录 page_view 埋点
 
-### 📄 Editor.jsx (Main Feature - MOST IMPORTANT)
+### 📄 Editor.jsx(核心功能 - 最重要)
 
-**State Management:**
+**状态管理:**
 ```javascript
 const [resume, setResume] = useState({
   name: "", title: "", email: "", phone: "",
@@ -130,7 +135,7 @@ const [resume, setResume] = useState({
 });
 ```
 
-**AI Summary Generation:**
+**AI 简介生成:**
 ```javascript
 const generateSummary = async () => {
   const response = await api.generateSummary({
@@ -143,21 +148,22 @@ const generateSummary = async () => {
 };
 ```
 
-**Auto-save to localStorage:**
+**自动保存到 localStorage(多版本写穿):**
 ```javascript
 useEffect(() => {
-  localStorage.setItem('resumeData', JSON.stringify(resumeData));
-}, [resume]);
+  writeThrough(resumeDataForATS);  // 写当前激活版本 + 兼容旧页面的 resumeData
+}, [resume, templateId, activeId]);
 ```
 
-**Key Features:**
-1. Form inputs for all resume fields
-2. AI generation buttons (summary, bullets, STAR)
-3. Live preview on right side
-4. Auto-save every change
-5. Load saved data on mount
+**核心特性:**
+1. 覆盖所有简历字段的表单
+2. AI 生成按钮(简介、要点、STAR)
+3. 右侧实时预览
+4. 每次变更自动保存
+5. 挂载时加载已存数据
+6. 顶部版本管理条(新建/复制/切换/重命名/删除)
 
-### 📄 api.js (API Client)
+### 📄 api.js(API 客户端)
 ```javascript
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -168,297 +174,309 @@ export async function generateSummary({ fullName, title, skills, tone }) {
   });
 }
 ```
-- All API calls organized by feature
-- Handles errors and JSON parsing
-- Environment-aware URL (dev vs production)
+- 所有 API 调用按功能组织
+- 统一处理错误与 JSON 解析
+- 环境感知 URL(开发 vs 生产)
 
-### 📄 server/index.js (Backend)
+### 📄 server/index.js(后端)
 ```javascript
 const app = express();
 
-// Middleware
-app.use(helmet());        // Security headers
-app.use(cors({ ... }));   // Allow frontend requests
-app.use(express.json());  // Parse JSON bodies
+// 中间件
+app.use(helmet());        // 安全响应头
+app.use(cors({ ... }));   // 放行前端域名
+app.use(express.json());  // 解析 JSON 请求体
 
-// Routes
+// 路由
 app.use("/api/ai", aiRoutes);
 app.use("/api/ats", atsRoutes);
 app.use("/api/interview", interviewRoutes);
+app.use("/api/import", importRoutes);
 
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
 ```
 
-**Key Points:**
-- Express server on port 5000
-- CORS allows specific origins only
-- Routes separated by feature
-- Helmet for security
+**要点:**
+- Express 服务运行在 5000 端口
+- CORS 仅放行特定域名
+- 路由按功能拆分
+- Helmet 提供安全防护
 
 ---
 
-## 4. DATA FLOW EXAMPLE (Demo This!)
+## 4. 数据流示例(建议现场演示!)
 
-### Scenario: User Generates AI Summary
+### 场景:用户生成 AI 简介
 
-**Step 1: User Input**
-- User enters: Name "John Doe", Title "Software Engineer", Skills "React, Python"
-- User clicks "Generate with AI ✨"
+**第 1 步:用户输入**
+- 用户填写:姓名"张三"、职位"软件工程师"、技能"React, Python"
+- 点击"AI 生成个人简介 ✨"
 
-**Step 2: Frontend (Editor.jsx)**
+**第 2 步:前端(Editor.jsx)**
 ```javascript
-generateSummary() called
+generateSummary() 被调用
   ↓
-Button shows "Generating..."
+按钮显示"正在生成..."
   ↓
 api.generateSummary({ fullName, title, skills, tone })
 ```
 
-**Step 3: API Client (api.js)**
+**第 3 步:API 客户端(api.js)**
 ```javascript
 POST http://localhost:5000/api/ai/generate-summary
-Body: { fullName: "John Doe", title: "Software Engineer", skills: ["React", "Python"], tone: "professional" }
+Body: { fullName: "张三", title: "软件工程师", skills: ["React", "Python"], tone: "professional" }
 ```
 
-**Step 4: Backend (server/routes/ai.js)**
+**第 4 步:后端(server/routes/ai.js)**
 ```javascript
-Receives request
+接收请求
   ↓
-Validates data
+数据校验
   ↓
-Calls OpenAI API with prompt
+携带 Prompt 调用 OpenAI API
   ↓
-Returns AI response
+返回 AI 结果
 ```
 
-**Step 5: OpenAI API**
+**第 5 步:OpenAI API**
 ```
-Generates professional summary based on input
-Returns: "Experienced Software Engineer with expertise in React and Python..."
-```
-
-**Step 6: Response Flow**
-```
-Backend → Frontend → Update State → Re-render → User sees summary
+基于输入生成专业简介
+返回:"具有 React 与 Python 丰富经验的软件工程师……"
 ```
 
-**Step 7: Auto-save**
+**第 6 步:响应回流**
+```
+后端 → 前端 → 更新 State → 重新渲染 → 用户看到简介
+```
+
+**第 7 步:自动保存**
 ```javascript
-useEffect detects state change
+useEffect 检测到状态变化
   ↓
-Saves to localStorage
+写入 localStorage
   ↓
-Data persists even after page reload
+页面刷新后数据依然存在
 ```
 
 ---
 
-## 5. KEY CONCEPTS TO EXPLAIN
+## 5. 需要讲清楚的关键概念
 
-### React Concepts
-1. **Components** - Reusable UI pieces (like LEGO blocks)
-2. **State** - Data that changes over time (`useState`)
-3. **Effects** - Side effects like API calls, localStorage (`useEffect`)
-4. **Props** - Data passed from parent to child
-5. **JSX** - HTML-like syntax in JavaScript
+### React 概念
+1. **组件** - 可复用的 UI 单元(像乐高积木)
+2. **State** - 随时间变化的数据(`useState`)
+3. **Effect** - 副作用,如 API 调用、localStorage 操作(`useEffect`)
+4. **Props** - 从父组件传向子组件的数据
+5. **JSX** - JavaScript 中类 HTML 的语法
 
 ### React Router
-1. **Client-side routing** - No page reloads
-2. **Routes** - Map URLs to components
-3. **Link** - Navigation without reload
+1. **客户端路由** - 无页面刷新
+2. **Routes** - 把 URL 映射到组件
+3. **Link** - 无刷新导航
 
-### API Design
-1. **REST** - Standard HTTP methods (GET, POST)
-2. **JSON** - Data format
-3. **Async/Await** - Handle asynchronous operations
-4. **Error Handling** - Try/catch blocks
+### API 设计
+1. **REST** - 标准 HTTP 方法(GET、POST)
+2. **JSON** - 数据格式
+3. **Async/Await** - 处理异步操作
+4. **错误处理** - try/catch
 
-### Security
-1. **API Key Protection** - Hidden on backend
-2. **CORS** - Only allowed origins can access API
-3. **Helmet** - Security headers
-4. **Rate Limiting** - Prevent abuse
+### 安全
+1. **API Key 保护** - 只存在后端,前端不可见
+2. **CORS** - 仅放行的域名可访问 API
+3. **Helmet** - 安全响应头
+4. **限流** - 防滥用
 
-### Storage
-1. **localStorage** - Browser storage (5-10MB)
-2. **JSON.stringify/parse** - Convert objects to strings
-3. **Auto-save** - Save on every change
-4. **No database** - Privacy-first approach
-
----
-
-## 6. DEMO SCRIPT (5 minutes)
-
-### Show Landing Page
-"This is the home page with marketing content and call-to-action buttons."
-
-### Navigate to Editor
-"Click 'Build My Resume' to go to the editor."
-
-### Show Editor Layout
-"Left side: form inputs. Right side: live preview. Changes update in real-time."
-
-### Enter Personal Info
-"Let me enter some basic information..."
-- Name: John Doe
-- Title: Software Engineer
-- Email: john@example.com
-- Skills: React, Node.js, Python
-
-### Generate AI Summary
-"Now I'll click 'Generate with AI' to create a professional summary."
-- Click button
-- Show loading state
-- Show generated summary
-- Explain the API flow
-
-### Add Experience
-"Let me add a work experience..."
-- Company: Google
-- Role: Senior Developer
-- Duration: 2020-2023
-
-### Generate AI Bullets
-"I can generate professional bullet points using AI."
-- Click "AI Bullets ✨"
-- Show generated bullets
-
-### Convert to STAR Format
-"Or convert existing bullets to STAR format (Situation, Task, Action, Result)."
-- Click "STAR Format ✨"
-- Show transformation
-
-### Show Auto-save
-"Notice everything is auto-saved to browser storage."
-- Refresh page
-- Data persists
-
-### Show Template Selection
-"Users can choose from multiple templates."
-- Navigate to Templates page
-- Show different designs
-
-### Show ATS Analyzer
-"The ATS analyzer helps optimize resumes for job applications."
-- Navigate to ATS page
-- Paste job description
-- Show analysis results
+### 存储
+1. **localStorage** - 浏览器存储(5-10MB)
+2. **JSON.stringify/parse** - 对象与字符串互转
+3. **自动保存** - 每次变更即保存
+4. **无数据库** - 隐私优先的设计
 
 ---
 
-## 7. QUESTIONS PROFESSORS MIGHT ASK
+## 6. 演示脚本(5 分钟)
 
-### Q: Why no database?
-**A:** Privacy-first approach. User data stays in their browser. Also simpler architecture, lower costs, and faster development. For production, we could add MongoDB for multi-device access.
+### 展示落地页
+"这是首页,包含产品介绍和行动引导按钮。"
 
-### Q: How do you handle API key security?
-**A:** OpenAI API key is stored on backend in .env file, never exposed to frontend. Backend acts as a proxy between frontend and OpenAI.
+### 导航到导入页(新亮点,建议先演示)
+"已有简历的用户可以直接上传 PDF 或 Word,AI 自动提取内容填入编辑器——这就是冷启动加速。"
 
-### Q: What if localStorage is cleared?
-**A:** User loses data. Future enhancement: add user accounts and cloud storage. For now, users can export PDF as backup.
+### 进入编辑器
+"点击'开始制作'进入编辑器。"
 
-### Q: How does real-time preview work?
-**A:** React state updates trigger re-renders. When user types, state changes, component re-renders with new data.
+### 展示编辑器布局
+"左边是表单输入,右边是实时预览,改动即时生效。"
 
-### Q: What's the difference between SPA and traditional websites?
-**A:** SPA loads once, then JavaScript changes content without page reloads. Traditional sites reload entire page for each navigation. SPAs are faster and feel more like native apps.
+### 填写基本信息
+"先填一些基本信息……"
+- 姓名:张三
+- 职位:软件工程师
+- 邮箱:zhangsan@example.com
+- 技能:React, Node.js, Python
 
-### Q: How do you prevent API abuse?
-**A:** Rate limiting middleware (10 requests per 15 minutes per IP), CORS restrictions, and API key protection.
+### 生成 AI 简介
+"现在点击'AI 生成个人简介'。"
+- 点击按钮
+- 展示加载状态
+- 展示生成的简介
+- 讲解 API 调用链路
 
-### Q: What testing have you done?
-**A:** Manual testing of all features, error handling for API failures, validation of user inputs, and cross-browser testing.
+### 添加工作经历
+"添加一段工作经历……"
+- 公司:某科技公司
+- 职位:高级开发工程师
+- 时间:2020-2023
 
----
+### 生成 AI 要点
+"可以用 AI 生成专业的经历要点。"
+- 点击"AI 生成要点 ✨"
+- 展示生成的要点
 
-## 8. TECHNICAL HIGHLIGHTS
+### STAR 结构化
+"也可以把已有要点转换成 STAR 格式(情境、任务、行动、结果)。"
+- 点击"STAR 结构化 ✨"
+- 展示转换效果
 
-### Performance Optimizations
-- Vite for fast builds (10x faster than Webpack)
-- useMemo for expensive calculations
-- Lazy loading of templates
-- Client-side PDF generation (no server processing)
+### 展示自动保存与多版本
+"所有内容自动保存到浏览器,而且支持多版本管理——投不同公司各存一版。"
+- 刷新页面,数据还在
+- 用版本条新建/切换版本
 
-### User Experience
-- Auto-save (no manual save needed)
-- Loading states (user knows AI is working)
-- Error messages (clear feedback)
-- Live preview (instant visual feedback)
-- Responsive design (works on all devices)
+### 展示主题定制
+"用户还可以自定义主色调和字体,所有模板实时同步。"
 
-### Code Organization
-- Component-based architecture
-- Separation of concerns (UI, logic, API)
-- Reusable utility functions
-- Clear file structure
+### 展示模板选择
+"模板页提供多套专业模板。"
+- 打开 Templates 页
+- 展示不同设计
 
----
-
-## 9. FUTURE ENHANCEMENTS
-
-1. **User Accounts** - Login, save multiple resumes
-2. **Database** - MongoDB for cloud storage
-3. **Collaboration** - Share resumes with others
-4. **More Templates** - Custom template builder
-5. **Analytics** - Track which templates perform best
-6. **Cover Letter Generator** - AI-powered cover letters
-7. **LinkedIn Integration** - Import profile data
-8. **Version History** - Track resume changes over time
-
----
-
-## 10. CONCLUSION POINTS
-
-**What We Built:**
-- Full-stack web application
-- AI-powered features using OpenAI
-- Modern React architecture
-- RESTful API design
-- Secure backend implementation
-
-**Technologies Mastered:**
-- React (components, hooks, routing)
-- Express (middleware, routing, API design)
-- OpenAI API integration
-- Client-side storage
-- Modern JavaScript (ES6+)
-
-**Skills Demonstrated:**
-- Full-stack development
-- API design and integration
-- State management
-- Security best practices
-- User experience design
+### 展示 ATS 诊断
+"ATS 诊断帮助优化简历的机器初筛通过率。"
+- 打开 ATS 页
+- 粘贴 JD
+- 展示分析结果与建议校验
 
 ---
 
-## 11. QUICK COMMAND REFERENCE
+## 7. 可能被问到的问题
 
-### Start Development
+### 问:为什么不用数据库?
+**答:** 隐私优先。用户数据只留在自己浏览器里。同时架构更简单、成本更低、开发更快。生产化之后可以加 MongoDB 实现多设备同步(opt-in 云同步)。
+
+### 问:API Key 的安全怎么保证?
+**答:** OpenAI API Key 只存在后端 `.env` 文件中,绝不暴露给前端。后端充当前端与 OpenAI 之间的代理。
+
+### 问:localStorage 被清空怎么办?
+**答:** 用户会丢失数据。后续方案:可选云同步。目前用户可以导出 PDF/DOCX 作为备份。
+
+### 问:实时预览是怎么实现的?
+**答:** React 状态更新触发重新渲染。用户输入 → 状态变化 → 组件用新数据重渲染,纯客户端同步完成。
+
+### 问:SPA 和传统网站的区别?
+**答:** SPA 只加载一次,之后由 JavaScript 更新内容、不刷新页面。传统网站每次导航都整页重载。SPA 更快、体验更接近原生应用。
+
+### 问:如何防止 API 被滥用?
+**答:** 限流中间件(每 IP 15 分钟限次)+ CORS 域名白名单 + API Key 后端隔离。
+
+### 问:AI 输出不可靠怎么办?
+**答:** 三层防护:① Prompt 强制 JSON 输出;② 服务端 Zod 校验,不合格直接报错不降级放行;③ 简历导入场景 Prompt 明令禁止编造,缺失字段留空并生成核对清单。
+
+### 问:做过哪些测试?
+**答:** 全功能手动测试、API 失败的错误处理、用户输入校验、跨浏览器测试;后端接口有独立的冒烟测试脚本(DOCX 生成、导入路由校验)。
+
+---
+
+## 8. 技术亮点
+
+### 性能优化
+- Vite 构建极快(远快于 Webpack)
+- useMemo 缓存高开销计算(如简历完成度打分)
+- 客户端 PDF 生成(无服务器处理)
+
+### 用户体验
+- 自动保存(无需手动保存)
+- 加载状态(用户知道 AI 正在工作)
+- 错误提示(清晰反馈)
+- 实时预览(即时视觉反馈)
+- 响应式设计(全设备可用)
+- 导入预填(从 80 分起步,不必空白起笔)
+
+### 代码组织
+- 组件化架构
+- 关注点分离(UI、逻辑、API)
+- 可复用工具函数(埋点、主题、版本存储各自成模块)
+- 清晰的文件结构
+
+---
+
+## 9. 后续规划
+
+1. **可选云同步** - opt-in,默认仍本地
+2. **数据库** - MongoDB 云存储
+3. **协作** - 简历分享给他人点评
+4. **导入 OCR** - 支持扫描件/图片型 PDF
+5. **分析增强** - 模板使用效果追踪
+6. **求职信生成器** - AI 求职信
+7. **LinkedIn 导入** - 拉取个人主页数据
+8. **版本 × 匹配分联动** - 可视化"改简历→分数提升"
+
+---
+
+## 10. 总结要点
+
+**我们构建了:**
+- 全栈 Web 应用
+- 基于 OpenAI 的 AI 功能
+- 现代 React 架构
+- RESTful API 设计
+- 安全的后端实现
+- 隐私优先的数据闭环
+
+**掌握的技术:**
+- React(组件、Hooks、路由)
+- Express(中间件、路由、API 设计)
+- OpenAI API 集成(JSON mode + 校验)
+- 客户端存储与版本管理
+- 现代 JavaScript(ES6+)
+
+**展示的能力:**
+- 全栈开发
+- API 设计与集成
+- 状态管理
+- 安全最佳实践
+- 用户体验设计
+- AI 失败模式治理
+
+---
+
+## 11. 常用命令速查
+
+### 本地开发
 ```bash
-# Frontend (from client/)
+# 前端(在 client/ 目录)
 npm run dev
-# Runs on http://localhost:5173
+# 运行在 http://localhost:5173
 
-# Backend (from server/)
-npm start
-# Runs on http://localhost:5000
+# 后端(在 server/ 目录)
+npm run dev
+# 运行在 http://localhost:5000
 ```
 
-### Build for Production
+### 生产构建
 ```bash
-# Frontend
+# 前端
 npm run build
-# Creates optimized build in dist/
+# 产物输出到 dist/
 
-# Backend
-# No build needed, runs directly with Node.js
+# 后端
+# 无需构建,Node.js 直接运行
 ```
 
-### Environment Variables
+### 环境变量
 ```bash
 # server/.env
-OPENAI_API_KEY=your_key_here
+OPENAI_API_KEY=你的密钥
 PORT=5000
 
 # client/.env
@@ -467,44 +485,44 @@ VITE_API_URL=http://localhost:5000
 
 ---
 
-## 12. TIME ALLOCATION FOR PRESENTATION
+## 12. 演示时间分配
 
-**Total: 15-20 minutes**
+**总计:15-20 分钟**
 
-1. Introduction (2 min)
-   - Project overview
-   - Key features
+1. 开场介绍(2 分钟)
+   - 项目概述
+   - 核心功能
 
-2. Architecture (3 min)
-   - Tech stack
-   - File structure
-   - Data flow
+2. 架构讲解(3 分钟)
+   - 技术栈
+   - 目录结构
+   - 数据流
 
-3. Live Demo (5 min)
-   - Editor walkthrough
-   - AI features
-   - Template selection
+3. 现场演示(5 分钟)
+   - 导入 → 编辑器全流程
+   - AI 功能
+   - 模板与主题定制
 
-4. Code Walkthrough (5 min)
-   - Show key files
-   - Explain critical functions
-   - Highlight best practices
+4. 代码走读(5 分钟)
+   - 讲解关键文件
+   - 解释核心函数
+   - 点出最佳实践
 
-5. Q&A (5 min)
-   - Answer questions
-   - Discuss challenges
-   - Future enhancements
+5. 问答(5 分钟)
+   - 回答提问
+   - 讨论难点
+   - 后续规划
 
 ---
 
-## CONFIDENCE BOOSTERS
+## 自信心清单
 
-✅ You understand the complete application flow  
-✅ You can explain every major file and its purpose  
-✅ You know how frontend and backend communicate  
-✅ You understand React concepts (state, effects, components)  
-✅ You can demo the AI features  
-✅ You know the security measures implemented  
-✅ You can answer technical questions  
+✅ 你理解完整的应用流程
+✅ 你能解释每个关键文件及其职责
+✅ 你清楚前后端如何通信
+✅ 你理解 React 概念(state、effects、components)
+✅ 你能现场演示 AI 功能
+✅ 你知道已实现的安全措施
+✅ 你能回答技术问题
 
-**You've got this! 🚀**
+**你可以的!🚀**

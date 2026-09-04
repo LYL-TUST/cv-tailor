@@ -106,6 +106,26 @@ export async function getATSKeywords({ jobTitle, industry }) {
   });
 }
 
+/**
+ * [增量] 语义级 JD 匹配诊断：逐条职责语义分析
+ */
+export async function semanticMatch({ resumeData, jobDescription }) {
+  return fetchAPI('/api/ats/semantic-match', {
+    method: 'POST',
+    body: JSON.stringify({ resumeData, jobDescription }),
+  });
+}
+
+/**
+ * [增量] 建议质量 verifier：独立校验建议是否相关/具体/诚实
+ */
+export async function verifySuggestions({ resumeText, jobDescription, suggestions, missingKeywords }) {
+  return fetchAPI('/api/ats/verify-suggestions', {
+    method: 'POST',
+    body: JSON.stringify({ resumeText, jobDescription, suggestions, missingKeywords }),
+  });
+}
+
 // ==================== Template APIs ====================
 
 /**
@@ -189,6 +209,101 @@ export async function generateDOCX({ resumeData }) {
   });
 }
 
+/**
+ * 下载 DOCX 文件：后端返回二进制流，前端转 Blob 触发保存
+ */
+export async function downloadDOCX({ resumeData }) {
+  const response = await fetch(`${API_URL}/api/pdf/generate-docx`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resumeData }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'DOCX 生成失败' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${resumeData?.personalInfo?.name?.replace(/\s+/g, '_') || 'Resume'}_Resume.docx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 简历导入：上传 PDF/DOCX 文件 → 后端解析 + LLM 结构化
+ * 注意：FormData 请求不能手动设置 Content-Type（浏览器需自动生成 boundary）
+ */
+export async function importResume(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_URL}/api/import/parse-resume`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json().catch(() => ({ error: '导入请求失败' }));
+  if (!response.ok) {
+    throw new Error(result.error || `HTTP ${response.status}`);
+  }
+  return result;
+}
+
+// ==================== Auth & Cloud Sync APIs (Phase 2) ====================
+
+function authHeaders(token) {
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
+
+/**
+ * 注册（账号为可选增值：跨设备云同步）
+ */
+export async function registerUser({ email, password, nickname }) {
+  return fetchAPI('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, nickname }),
+  });
+}
+
+export async function loginUser({ email, password }) {
+  return fetchAPI('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function fetchMe(token) {
+  return fetchAPI('/api/auth/me', { headers: authHeaders(token) });
+}
+
+/** 读取云端密文（端到端加密，服务器只存密文） */
+export async function fetchVault(token) {
+  return fetchAPI('/api/vault', { headers: authHeaders(token) });
+}
+
+/** 上传/覆盖云端密文 */
+export async function pushVault(token, blob) {
+  return fetchAPI('/api/vault', {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ blob }),
+  });
+}
+
+/** 删除云端备份 */
+export async function deleteVault(token) {
+  return fetchAPI('/api/vault', {
+    method: 'DELETE',
+    headers: authHeaders(token),
+  });
+}
+
 export default {
   // AI Resume Writing
   generateSummary,
@@ -200,6 +315,8 @@ export default {
   // ATS Analyzer
   analyzeATS,
   getATSKeywords,
+  semanticMatch,
+  verifySuggestions,
   
   // Templates
   getTemplates,
@@ -213,4 +330,16 @@ export default {
   // PDF Export
   generatePDF,
   generateDOCX,
+  downloadDOCX,
+
+  // Resume Import
+  importResume,
+
+  // Auth & Cloud Sync
+  registerUser,
+  loginUser,
+  fetchMe,
+  fetchVault,
+  pushVault,
+  deleteVault,
 };

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { openai } from "../services/openaiClient.js";
+import { openai, MODEL_NAME } from "../services/openaiClient.js";
 
 const router = Router();
 
@@ -9,30 +9,30 @@ router.post("/generate", async (req, res) => {
         const { jobTitle, jobDescription, interviewType = "mixed", count = 5 } = req.body;
 
         if (!jobTitle) {
-            return res.status(400).json({ error: "Job title is required" });
+            return res.status(400).json({ error: "请提供目标职位" });
         }
 
         let prompt = "";
 
         if (interviewType === "behavioral") {
             prompt = `
-Generate ${count} behavioral interview questions for a ${jobTitle} position.
+请为「${jobTitle}」岗位生成 ${count} 道行为面试题。
 
-${jobDescription ? `Job Description: ${jobDescription}` : ""}
+${jobDescription ? `职位描述：${jobDescription}` : ""}
 
-Requirements:
-- Focus on STAR format answerable questions
-- Cover various competencies: leadership, teamwork, problem-solving, conflict resolution, adaptability
-- Make questions specific and realistic
-- Each question should assess different skills
+要求：
+- 题目适合用 STAR 结构（情境、任务、行动、结果）回答
+- 覆盖多种能力维度：领导力、团队协作、问题解决、冲突处理、适应能力
+- 题目具体、贴近真实工作场景
+- 每道题考察不同能力
 
-Return as JSON array with format:
+以 JSON 输出，格式如下：
 {
   "questions": [
     {
-      "question": "...",
+      "question": "题目内容（中文）",
       "type": "behavioral",
-      "category": "Leadership",
+      "category": "能力维度（如：领导力）",
       "answerFramework": "STAR"
     }
   ]
@@ -40,23 +40,24 @@ Return as JSON array with format:
 `;
         } else if (interviewType === "technical") {
             prompt = `
-Generate ${count} technical interview questions for a ${jobTitle} position.
+请为「${jobTitle}」岗位生成 ${count} 道专业技术面试题。
 
-${jobDescription ? `Job Description: ${jobDescription}` : ""}
+${jobDescription ? `职位描述：${jobDescription}` : ""}
 
-Requirements:
-- Include role-specific technical questions
-- Cover theoretical knowledge and practical scenarios
-- Range from fundamental to advanced topics
-- Be specific to the role's tech stack
+要求：
+- 包含岗位相关的专业问题
+- 覆盖理论知识与实际场景
+- 难度从基础到进阶
+- 紧扣该岗位的技术栈
+- 题目与解析用中文
 
-Return as JSON array with format:
+以 JSON 输出，格式如下：
 {
   "questions": [
     {
-      "question": "...",
+      "question": "题目内容（中文）",
       "type": "technical",
-      "category": "System Design|Coding|Architecture|etc",
+      "category": "分类（如：系统设计、编码、架构等）",
       "difficulty": "Easy|Medium|Hard"
     }
   ]
@@ -65,24 +66,24 @@ Return as JSON array with format:
         } else {
             // Mixed
             prompt = `
-Generate ${count} interview questions for a ${jobTitle} position (mix of behavioral and technical).
+请为「${jobTitle}」岗位生成 ${count} 道面试题（行为面与技术面混合）。
 
-${jobDescription ? `Job Description: ${jobDescription}` : ""}
+${jobDescription ? `职位描述：${jobDescription}` : ""}
 
-Requirements:
-- Mix behavioral (STAR) and technical questions
-- Cover various competencies and technical skills
-- Range from easy to challenging
-- Make questions realistic and relevant
+要求：
+- 混合行为面（可用 STAR 回答）与技术面题目
+- 覆盖多种能力维度与专业技能
+- 难度由易到难
+- 题目真实、贴合岗位、用中文
 
-Return as JSON array with format:
+以 JSON 输出，格式如下：
 {
   "questions": [
     {
-      "question": "...",
+      "question": "题目内容（中文）",
       "type": "behavioral|technical",
-      "category": "...",
-      "answerFramework": "STAR" (if behavioral)
+      "category": "分类",
+      "answerFramework": "STAR"（如为行为题）
     }
   ]
 }
@@ -90,7 +91,7 @@ Return as JSON array with format:
         }
 
         const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: MODEL_NAME,
             messages: [{ role: "user", content: prompt }],
             response_format: { type: "json_object" },
         });
@@ -99,7 +100,7 @@ Return as JSON array with format:
         res.json(data);
     } catch (err) {
         console.error("Interview generation error:", err);
-        res.status(500).json({ error: "Interview generation failed" });
+        res.status(500).json({ error: "面试题生成失败" });
     }
 });
 
@@ -109,37 +110,37 @@ router.post("/evaluate", async (req, res) => {
         const { question, userAnswer, questionType = "behavioral" } = req.body;
 
         if (!question || !userAnswer) {
-            return res.status(400).json({ error: "Question and answer are required" });
+            return res.status(400).json({ error: "请提供面试题与你的回答" });
         }
 
         const prompt = `
-You are an interview coach. Evaluate this interview answer.
+你是一位资深面试教练。请评估以下面试回答，并用中文给出反馈。
 
-QUESTION: ${question}
-ANSWER: ${userAnswer}
-QUESTION TYPE: ${questionType}
+面试题：${question}
+求职者回答：${userAnswer}
+题目类型：${questionType}
 
-Provide a detailed evaluation in JSON format:
+请以 JSON 输出详细评估：
 {
-  "score": 8.5,  // 0-10 scale
-  "feedback": "Overall assessment summary",
-  "strengths": ["point 1", "point 2"],
-  "improvements": ["suggestion 1", "suggestion 2"],
-  "starCompliance": true/false (if behavioral),
-  "improvedAnswer": "Optional: a better version of the answer"
+  "score": 8.5,
+  "feedback": "整体评估总结（中文）",
+  "strengths": ["优点 1", "优点 2"],
+  "improvements": ["改进建议 1", "改进建议 2"],
+  "starCompliance": true/false（如为行为题，是否遵循 STAR 结构）,
+  "improvedAnswer": "可选：一版更优的回答示例（中文）"
 }
 
-Criteria for evaluation:
-- Structure and clarity
-- Specific examples and details
-- Results and impact mentioned
-- Relevance to the question
-- STAR format compliance (if behavioral)
-- Technical accuracy (if technical)
+评估维度：
+- 结构与表达清晰度
+- 是否给出具体事例与细节
+- 是否提及结果与影响
+- 是否切题
+- 行为题是否遵循 STAR 结构
+- 技术题回答是否准确
 `;
 
         const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: MODEL_NAME,
             messages: [{ role: "user", content: prompt }],
             response_format: { type: "json_object" },
         });
@@ -148,7 +149,7 @@ Criteria for evaluation:
         res.json(evaluation);
     } catch (err) {
         console.error("Answer evaluation error:", err);
-        res.status(500).json({ error: "Answer evaluation failed" });
+        res.status(500).json({ error: "回答评估失败" });
     }
 });
 
@@ -158,25 +159,25 @@ router.post("/tips", async (req, res) => {
         const { jobTitle, interviewType = "general" } = req.body;
 
         const prompt = `
-Provide interview preparation tips for a ${jobTitle} position.
-Focus on: ${interviewType}
+请为「${jobTitle}」岗位提供面试准备建议。
+关注方向：${interviewType}
 
-Return as JSON:
+以 JSON 输出：
 {
   "tips": [
     {
-      "category": "Preparation|During Interview|Follow-up",
-      "tip": "Specific actionable advice",
-      "why": "Brief explanation why this matters"
+      "category": "面试前|面试中|面试后",
+      "tip": "具体可执行的建议（中文）",
+      "why": "简要说明为什么重要"
     }
   ]
 }
 
-Provide 5-7 practical tips.
+提供 5-7 条实用建议。
 `;
 
         const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: MODEL_NAME,
             messages: [{ role: "user", content: prompt }],
             response_format: { type: "json_object" },
         });
@@ -185,7 +186,7 @@ Provide 5-7 practical tips.
         res.json(data);
     } catch (err) {
         console.error("Tips generation error:", err);
-        res.status(500).json({ error: "Tips generation failed" });
+        res.status(500).json({ error: "面试建议生成失败" });
     }
 });
 

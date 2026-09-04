@@ -37,3 +37,16 @@ coverage/
 
 # Vercel
 .vercel
+
+# SQLite data (Phase 2 云同步存储)
+server/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+# Build variants (local verification builds)
+client/dist*/
+client/build*/
+
+# WorkBuddy workspace memory
+.workbuddy/

@@ -1,38 +1,77 @@
 import { useState, useMemo, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import * as api from "../utils/api";
+import { track } from "../utils/analytics";
+import {
+  listVersions, getActiveVersion, writeThrough,
+  createVersion, duplicateVersion, switchTo, renameVersion, deleteVersion,
+} from "../utils/resumeStore";
 
 import ProfessionalPreview from "../components/templates/ProfessionalTemplate";
 import ClassyPreview from "../components/templates/ClassyTemplate";
 import SimplePreview from "../components/templates/SimpleTemplate";
 import StylishPreview from "../components/templates/StylishTemplate";
 
+const blankResume = () => ({
+  name: "",
+  title: "",
+  email: "",
+  phone: "",
+  location: "",
+  linkedin: "",
+  summary: "",
+  skills: "",
+  experiences: [{
+    company: "",
+    role: "",
+    duration: "",
+    bullets: [""],
+  }],
+  education: [{
+    school: "",
+    degree: "",
+    field: "",
+    graduationYear: "",
+  }],
+});
+
+/** ATS 格式 → 编辑器格式 */
+const atsToEditor = (resumeData) => ({
+  name: resumeData.personalInfo?.name || "",
+  title: resumeData.personalInfo?.title || "",
+  email: resumeData.personalInfo?.email || "",
+  phone: resumeData.personalInfo?.phone || "",
+  location: resumeData.personalInfo?.location || "",
+  linkedin: resumeData.personalInfo?.linkedin || "",
+  summary: resumeData.summary || "",
+  skills: resumeData.skills?.join(', ') || "",
+  experiences: resumeData.experience?.map(exp => ({
+    company: exp.company || "",
+    role: exp.position || "",
+    duration: exp.duration || "",
+    bullets: exp.bullets?.length > 0 ? exp.bullets : [""],
+  })) || [{
+    company: "",
+    role: "",
+    duration: "",
+    bullets: [""],
+  }],
+  education: resumeData.education?.length > 0 ? resumeData.education : [{
+    school: "",
+    degree: "",
+    field: "",
+    graduationYear: "",
+  }],
+});
+
 export default function Editor() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const templateId = searchParams.get('template') || 'professional';
 
-  const [resume, setResume] = useState({
-    name: "",
-    title: "",
-    email: "",
-    phone: "",
-    location: "",
-    linkedin: "",
-    summary: "",
-    skills: "",
-    experiences: [{
-      company: "",
-      role: "",
-      duration: "",
-      bullets: [""],
-    }],
-    education: [{
-      school: "",
-      degree: "",
-      field: "",
-      graduationYear: "",
-    }],
-  });
+  const [resume, setResume] = useState(blankResume());
+  const [versions, setVersions] = useState([]);
+  const [activeId, setActiveId] = useState(null);
 
   const [loadingStates, setLoadingStates] = useState({
     summary: false,
@@ -42,42 +81,27 @@ export default function Editor() {
 
   const [error, setError] = useState(null);
 
-  // Load saved resume from localStorage on mount
+  // 防竞态守卫（必须是 state 而非 ref）：
+  // hydrated 为 false 期间自动保存绝不写入。state 要到下一轮渲染才生效，
+  // 因此挂载第一轮（resume 还是空白初始值）时保存 effect 必然被跳过，
+  // 防止空白简历覆盖刚导入的数据；ref 版守卫在同轮就已生效，挡不住。
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load saved resume (multi-version aware) on mount
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('resumeData');
-      if (saved) {
-        const resumeData = JSON.parse(saved);
-        setResume({
-          name: resumeData.personalInfo?.name || "",
-          title: resumeData.personalInfo?.title || "",
-          email: resumeData.personalInfo?.email || "",
-          phone: resumeData.personalInfo?.phone || "",
-          location: resumeData.personalInfo?.location || "",
-          linkedin: resumeData.personalInfo?.linkedin || "",
-          summary: resumeData.summary || "",
-          skills: resumeData.skills?.join(', ') || "",
-          experiences: resumeData.experience?.map(exp => ({
-            company: exp.company || "",
-            role: exp.position || "",
-            duration: exp.duration || "",
-            bullets: exp.bullets?.length > 0 ? exp.bullets : [""],
-          })) || [{
-            company: "",
-            role: "",
-            duration: "",
-            bullets: [""],
-          }],
-          education: resumeData.education?.length > 0 ? resumeData.education : [{
-            school: "",
-            degree: "",
-            field: "",
-            graduationYear: "",
-          }],
-        });
+      setVersions(listVersions());
+      const active = getActiveVersion();
+      if (active) {
+        setActiveId(active.id);
+        if (active.data && !active.data.empty) {
+          setResume(atsToEditor(active.data));
+        }
       }
     } catch (err) {
-      console.error('Failed to load saved resume:', err);
+      console.error('读取已保存的简历失败:', err);
+    } finally {
+      setHydrated(true); // 下一轮渲染起才允许自动保存
     }
   }, []);
 
@@ -133,6 +157,8 @@ export default function Editor() {
     setError(null);
 
     try {
+      const startedAt = Date.now();
+      track("ai_generate_click", { feature: "summary" });
       const response = await api.generateSummary({
         fullName: resume.name,
         title: resume.title,
@@ -140,8 +166,10 @@ export default function Editor() {
         tone: 'professional',
       });
       updateField("summary", response.summary);
+      track("ai_generate_success", { feature: "summary", ms: Date.now() - startedAt });
     } catch (err) {
-      setError(`Failed to generate summary: ${err.message}`);
+      track("ai_generate_fail", { feature: "summary", reason: String(err.message || err).slice(0, 120) });
+      setError(`生成个人简介失败: ${err.message}`);
     } finally {
       setLoadingStates({ ...loadingStates, summary: false });
     }
@@ -151,7 +179,7 @@ export default function Editor() {
     const exp = resume.experiences[expIndex];
 
     if (!exp.role || !exp.company) {
-      setError("Please fill in role and company first");
+      setError("请先填写职位与公司");
       return;
     }
 
@@ -162,6 +190,8 @@ export default function Editor() {
     setError(null);
 
     try {
+      const startedAt = Date.now();
+      track("ai_generate_click", { feature: "bullets" });
       const response = await api.generateBullets({
         jobTitle: exp.role,
         company: exp.company,
@@ -172,8 +202,10 @@ export default function Editor() {
       const exps = [...resume.experiences];
       exps[expIndex].bullets = response.bullets;
       setResume({ ...resume, experiences: exps });
+      track("ai_generate_success", { feature: "bullets", ms: Date.now() - startedAt });
     } catch (err) {
-      setError(`Failed to generate bullets: ${err.message}`);
+      track("ai_generate_fail", { feature: "bullets", reason: String(err.message || err).slice(0, 120) });
+      setError(`生成经历要点失败: ${err.message}`);
     } finally {
       setLoadingStates({
         ...loadingStates,
@@ -192,6 +224,8 @@ export default function Editor() {
     setError(null);
 
     try {
+      const startedAt = Date.now();
+      track("ai_generate_click", { feature: "star" });
       const response = await api.convertToStar({
         experience: `${exp.role} at ${exp.company}`,
         bullets: exp.bullets.filter(b => b.trim()),
@@ -200,8 +234,10 @@ export default function Editor() {
       const exps = [...resume.experiences];
       exps[expIndex].bullets = response.starBullets;
       setResume({ ...resume, experiences: exps });
+      track("ai_generate_success", { feature: "star", ms: Date.now() - startedAt });
     } catch (err) {
-      setError(`Failed to convert to STAR format: ${err.message}`);
+      track("ai_generate_fail", { feature: "star", reason: String(err.message || err).slice(0, 120) });
+      setError(`STAR 格式转换失败: ${err.message}`);
     } finally {
       setLoadingStates({
         ...loadingStates,
@@ -225,8 +261,10 @@ export default function Editor() {
     return Math.min(score, 100);
   }, [resume]);
 
-  /* Persist to localStorage */
+  /* Persist to localStorage（多版本：写当前激活版本 + 写穿 resumeData 兼容旧页面）
+     守卫：hydrated 为 false（挂载第一轮）时绝不写入 */
   useEffect(() => {
+    if (!hydrated) return;
     try {
       const resumeDataForATS = {
         personalInfo: {
@@ -248,11 +286,66 @@ export default function Editor() {
         education: resume.education,
         selectedTemplate: templateId,
       };
-      localStorage.setItem('resumeData', JSON.stringify(resumeDataForATS));
+      writeThrough(resumeDataForATS);
     } catch (err) {
-      console.error('Failed to save resume data:', err);
+      console.error('保存简历数据失败:', err);
     }
-  }, [resume, templateId]);
+  }, [hydrated, resume, templateId, activeId]);
+
+  /* ===== 多版本管理 ===== */
+  const refreshVersions = () => setVersions(listVersions());
+
+  const handleCreateVersion = () => {
+    const name = window.prompt('新简历版本名称（如：字节跳动-产品岗）', '未命名简历');
+    if (name === null) return;
+    createVersion(name.trim() || '未命名简历');
+    setActiveId(getActiveVersion().id);
+    setResume(blankResume()); // 新版本从空白开始
+    refreshVersions();
+    track("resume_version_create", { action: "create" });
+  };
+
+  const handleDuplicateVersion = () => {
+    if (!activeId) return;
+    duplicateVersion(activeId);
+    setActiveId(getActiveVersion().id);
+    refreshVersions();
+    track("resume_version_create", { action: "duplicate" });
+  };
+
+  const handleSwitchVersion = (id) => {
+    if (id === activeId) return;
+    const target = switchTo(id);
+    if (!target) return;
+    setActiveId(id);
+    setResume(target.data && !target.data.empty ? atsToEditor(target.data) : blankResume());
+    track("resume_version_switch", { from: activeId, to: id });
+  };
+
+  const handleRenameVersion = () => {
+    if (!activeId) return;
+    const current = versions.find(v => v.id === activeId);
+    const name = window.prompt('修改版本名称', current?.name || '');
+    if (name === null || !name.trim()) return;
+    renameVersion(activeId, name.trim());
+    refreshVersions();
+  };
+
+  const handleDeleteVersion = () => {
+    if (!activeId) return;
+    if (versions.length <= 1) {
+      alert('至少保留一个简历版本');
+      return;
+    }
+    const current = versions.find(v => v.id === activeId);
+    if (!window.confirm(`确定删除版本「${current?.name}」？此操作不可恢复。`)) return;
+    const { active } = deleteVersion(activeId);
+    setActiveId(active);
+    const target = versions.find(v => v.id === active);
+    setResume(target?.data && !target.data.empty ? atsToEditor(target.data) : blankResume());
+    refreshVersions();
+    track("resume_version_delete", {});
+  };
 
   // Select preview component based on template
   const PreviewComponent = {
@@ -267,64 +360,72 @@ export default function Editor() {
       {/* LEFT PANEL */}
       <div className="editor-panel">
         <div className="editor-header">
-          <h2 className="editor-title">Resume Editor</h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h2 className="editor-title">
+            <span className="editor-title-ico" aria-hidden="true">✏️</span>
+            简历编辑器
+          </h2>
+          <div className="editor-header-meta">
             {templateId && (
-              <span style={{
-                fontSize: '13px',
-                color: '#666',
-                padding: '4px 12px',
-                background: '#e3f2fd',
-                borderRadius: '8px'
-              }}>
-                Template: {templateId}
-              </span>
+              <span className="editor-chip">模板：{templateId}</span>
             )}
-            <span className="progress-badge">{progress}% complete</span>
+            <span className="progress-badge">{progress}% 已完成</span>
           </div>
         </div>
 
+        {/* 多版本管理条 */}
+        <div className="version-bar">
+          <span className="version-bar-label">版本</span>
+          <select
+            value={activeId || ''}
+            onChange={(e) => handleSwitchVersion(e.target.value)}
+            className="version-bar-select"
+          >
+            {versions.length === 0 && <option value="">（暂无版本）</option>}
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>{v.name}</option>
+            ))}
+          </select>
+          <button className="btn btn-ghost btn-sm" onClick={handleCreateVersion}>＋ 新建空白版</button>
+          <button className="btn btn-ghost btn-sm" onClick={handleDuplicateVersion}>⧉ 复制当前版</button>
+          <button className="btn btn-ghost btn-sm" onClick={handleRenameVersion}>✎ 重命名</button>
+          <button className="btn btn-ghost btn-sm version-bar-del" onClick={handleDeleteVersion}>🗑 删除</button>
+          <span className="version-bar-hint">不同公司/岗位各存一版，互不影响</span>
+        </div>
+
         {error && (
-          <div style={{
-            padding: '12px',
-            background: '#fee',
-            color: '#c33',
-            borderRadius: '8px',
-            marginBottom: '16px',
-            fontSize: '14px'
-          }}>
+          <div className="notice notice-err">
             {error}
           </div>
         )}
 
         {/* Personal Info */}
-        <label>Full Name *</label>
+        <label>姓名 *</label>
         <input value={resume.name} onChange={(e) => updateField("name", e.target.value)} />
 
-        <label>Target Role *</label>
+        <label>目标职位 *</label>
         <input value={resume.title} onChange={(e) => updateField("title", e.target.value)} />
 
         {/* Contact Info */}
-        <h3 className="section-heading">Contact Information</h3>
+        <h3 className="section-heading">联系方式</h3>
 
-        <label>Email</label>
-        <input value={resume.email} onChange={(e) => updateField("email", e.target.value)} placeholder="your.email@example.com" />
+        <label>邮箱</label>
+        <input value={resume.email} onChange={(e) => updateField("email", e.target.value)} placeholder="you@example.com" />
 
-        <label>Phone</label>
+        <label>电话</label>
         <input value={resume.phone} onChange={(e) => updateField("phone", e.target.value)} placeholder="(123) 456-7890" />
 
-        <label>Location</label>
-        <input value={resume.location} onChange={(e) => updateField("location", e.target.value)} placeholder="City, State" />
+        <label>所在城市</label>
+        <input value={resume.location} onChange={(e) => updateField("location", e.target.value)} placeholder="城市" />
 
-        <label>LinkedIn</label>
-        <input value={resume.linkedin} onChange={(e) => updateField("linkedin", e.target.value)} placeholder="linkedin.com/in/yourname" />
+        <label>LinkedIn / 主页</label>
+        <input value={resume.linkedin} onChange={(e) => updateField("linkedin", e.target.value)} placeholder="linkedin.com/in/你的主页" />
 
         {/* Summary */}
-        <h3 className="section-heading">Professional Summary</h3>
+        <h3 className="section-heading">个人简介</h3>
         <textarea
           value={resume.summary}
           onChange={(e) => updateField("summary", e.target.value)}
-          placeholder="Write or generate a summary"
+          placeholder="填写或让 AI 生成个人简介"
           rows={4}
         />
 
@@ -333,44 +434,44 @@ export default function Editor() {
           onClick={generateSummary}
           disabled={loadingStates.summary}
         >
-          {loadingStates.summary ? 'Generating...' : 'Generate with AI ✨'}
+          {loadingStates.summary ? '正在生成...' : 'AI 生成个人简介 ✨'}
         </button>
 
         {/* Skills */}
-        <label>Skills (comma separated)</label>
+        <label>技能（用逗号分隔）</label>
         <textarea
           value={resume.skills}
           onChange={(e) => updateField("skills", e.target.value)}
-          placeholder="React, JavaScript, CSS, Node.js"
+          placeholder="需求分析, 数据分析, 产品设计"
           rows={2}
         />
 
-        {/* Experience */}
-        <h3 className="section-heading">Experience</h3>
+        {/* 工作经历 */}
+        <h3 className="section-heading">工作经历</h3>
 
         {resume.experiences.map((exp, i) => (
           <div key={i} className="experience-block">
             <input
-              placeholder="Company"
+              placeholder="公司"
               value={exp.company}
               onChange={(e) => updateExperience(i, "company", e.target.value)}
             />
             <input
-              placeholder="Role"
+              placeholder="职位"
               value={exp.role}
               onChange={(e) => updateExperience(i, "role", e.target.value)}
             />
             <input
-              placeholder="Duration (Jan 2023 – Present)"
+              placeholder="任职时间（如 2023.01 - 至今）"
               value={exp.duration}
               onChange={(e) => updateExperience(i, "duration", e.target.value)}
             />
 
-            <label>Responsibilities / Achievements</label>
+            <label>职责 / 成就</label>
             {exp.bullets.map((b, bi) => (
               <input
                 key={bi}
-                placeholder="• Bullet point"
+                placeholder="• 输入要点"
                 value={b}
                 onChange={(e) => updateBullet(i, bi, e.target.value)}
               />
@@ -382,52 +483,52 @@ export default function Editor() {
                 type="button"
                 onClick={() => addBullet(i)}
               >
-                + Add Bullet
+                + 添加要点
               </button>
               <button
                 className="btn-ghost"
                 onClick={() => generateBulletsForExp(i)}
                 disabled={loadingStates.bullets[i]}
               >
-                {loadingStates.bullets[i] ? 'Generating...' : 'AI Bullets ✨'}
+                {loadingStates.bullets[i] ? '正在生成...' : 'AI 生成要点 ✨'}
               </button>
               <button
                 className="btn-ghost"
                 onClick={() => convertToSTAR(i)}
                 disabled={loadingStates.star[i]}
               >
-                {loadingStates.star[i] ? 'Converting...' : 'STAR Format ✨'}
+                {loadingStates.star[i] ? '转换中...' : 'STAR 结构化 ✨'}
               </button>
             </div>
           </div>
         ))}
 
         <button className="btn-ghost" onClick={addExperience}>
-          + Add Experience
+          + 添加工作经历
         </button>
 
-        {/* Education */}
-        <h3 className="section-heading">Education</h3>
+        {/* 教育背景 */}
+        <h3 className="section-heading">教育背景</h3>
 
         {resume.education.map((edu, i) => (
           <div key={i} className="experience-block">
             <input
-              placeholder="School / University"
+              placeholder="学校"
               value={edu.school}
               onChange={(e) => updateEducation(i, "school", e.target.value)}
             />
             <input
-              placeholder="Degree"
+              placeholder="学历"
               value={edu.degree}
               onChange={(e) => updateEducation(i, "degree", e.target.value)}
             />
             <input
-              placeholder="Field of Study"
+              placeholder="专业"
               value={edu.field}
               onChange={(e) => updateEducation(i, "field", e.target.value)}
             />
             <input
-              placeholder="Graduation Year"
+              placeholder="毕业年份"
               value={edu.graduationYear}
               onChange={(e) => updateEducation(i, "graduationYear", e.target.value)}
             />
@@ -435,21 +536,35 @@ export default function Editor() {
         ))}
 
         <button className="btn-ghost" onClick={addEducation}>
-          + Add Education
+          + 添加教育背景
         </button>
 
-        {/* Download Section */}
-        <h3 className="section-heading">Download Resume</h3>
-        <div style={{ display: 'flex', gap: '12px', flexDirection: 'column' }}>
+        {/* 下一步操作：创作完成后衔接诊断/投递（不占全局导航） */}
+        <h3 className="section-heading">下一步</h3>
+        <div style={{ display: 'flex', gap: '10px', flexDirection: 'column' }}>
           <button
             className="btn-primary"
-            onClick={() => window.location.href = '/download'}
+            onClick={() => navigate('/ats')}
             style={{ width: '100%' }}
           >
-            📄 Download as PDF
+            🎯 JD 匹配诊断（ATS）
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => navigate('/interview')}
+            style={{ width: '100%' }}
+          >
+            🎤 模拟面试
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => navigate('/download')}
+            style={{ width: '100%' }}
+          >
+            📄 导出 PDF / Word
           </button>
           <p style={{ fontSize: '13px', color: '#666', margin: 0 }}>
-            Export your resume as ATS-friendly PDF using the {templateId} template
+            使用「{templateId}」模板导出兼容 ATS 的 PDF
           </p>
         </div>
       </div>

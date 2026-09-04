@@ -1,21 +1,21 @@
-# Vercel Deployment Guide - AI Resume Builder
+# Vercel 部署指南 - AI 简历创作助手
 
-## ✅ Current Deployment Status
+## ✅ 当前部署状态
 
-Your frontend is deployed on Vercel. Here's what you need to verify:
+前端已部署在 Vercel 上,以下是需要核对的事项:
 
 ---
 
-## 🔍 Checklist for Vercel Deployment
+## 🔍 Vercel 部署核对清单
 
-### 1. Frontend Deployment (Vercel)
+### 1. 前端部署(Vercel)
 
-✅ **Configured Files Created:**
-- `vercel.json` - Vercel build configuration
-- `.gitignore` - Excludes node_modules
-- `README.md` - Project documentation
+✅ **配置文件已就绪:**
+- `vercel.json` - Vercel 构建配置
+- `.gitignore` - 排除 node_modules
+- `README.md` - 项目文档
 
-**Vercel Settings:**
+**Vercel 配置:**
 ```
 Framework Preset: Vite
 Root Directory: client
@@ -26,47 +26,47 @@ Install Command: npm install
 
 ---
 
-### 2. Backend Deployment
+### 2. 后端部署
 
-⚠️ **Backend is NOT deployed on Vercel by default**
+⚠️ **后端默认不部署在 Vercel 上**
 
-Your backend needs to be deployed separately. Options:
+后端需要单独部署,可选方案:
 
-#### Option A: Render (Recommended)
-1. Go to [render.com](https://render.com)
-2. Create new "Web Service"
-3. Connect your GitHub repo
-4. Settings:
-   - **Root Directory**: `server`
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-   - **Environment**: Node
-5. Add environment variable:
+#### 方案 A:Render(推荐)
+1. 打开 [render.com](https://render.com)
+2. 创建新的 "Web Service"
+3. 关联你的 GitHub 仓库
+4. 配置项:
+   - **Root Directory**:`server`
+   - **Build Command**:`npm install`
+   - **Start Command**:`npm start`
+   - **Environment**:Node
+5. 添加环境变量:
    ```
-   OPENAI_API_KEY=your-actual-api-key
+   OPENAI_API_KEY=你的真实API密钥
    ```
 
-#### Option B: Railway
-1. Go to [railway.app](https://railway.app)
+#### 方案 B:Railway
+1. 打开 [railway.app](https://railway.app)
 2. New Project → Deploy from GitHub
-3. Set root directory: `server`
-4. Add environment variable: `OPENAI_API_KEY`
+3. 设置根目录:`server`
+4. 添加环境变量:`OPENAI_API_KEY`
 
-#### Option C: Vercel Serverless (Advanced)
-Convert Express routes to Vercel serverless functions.
+#### 方案 C:Vercel Serverless(进阶)
+把 Express 路由改造为 Vercel Serverless 函数。
 
 ---
 
-### 3. Connect Frontend to Backend
+### 3. 连接前端与后端
 
-Once backend is deployed, update frontend API calls:
+后端部署完成后,更新前端的 API 地址:
 
-**Create** `client/.env.production`:
+**创建** `client/.env.production`:
 ```env
-VITE_API_URL=https://your-backend-url.com
+VITE_API_URL=https://你的后端地址.com
 ```
 
-**Update** API calls in components to use:
+**确认** 组件中的 API 调用使用该变量:
 ```javascript
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -78,31 +78,31 @@ fetch(`${API_URL}/api/ai/generate-summary`, {
 
 ---
 
-## 🚀 Deploy Updates
+## 🚀 部署更新
 
-After making changes:
+修改代码后:
 
 ```bash
-# Add changes
+# 添加改动
 git add .
 
-# Commit
-git commit -m "Add Vercel configuration and README"
+# 提交
+git commit -m "添加 Vercel 配置与 README"
 
-# Push to GitHub
+# 推送到 GitHub
 git push origin main
 ```
 
-Vercel will automatically redeploy when you push to GitHub.
+推送到 GitHub 后 Vercel 会自动重新部署。
 
 ---
 
-## 🔧 Troubleshooting
+## 🔧 故障排查
 
-### Issue: Build Fails on Vercel
+### 问题:Vercel 构建失败
 
-**Solution 1:** Check build logs in Vercel dashboard
-**Solution 2:** Ensure `package.json` has correct scripts:
+**方案 1:** 在 Vercel 控制台查看构建日志
+**方案 2:** 确认 `package.json` 的 scripts 配置正确:
 ```json
 {
   "scripts": {
@@ -113,11 +113,11 @@ Vercel will automatically redeploy when you push to GitHub.
 }
 ```
 
-### Issue: 404 on Routes
+### 问题:路由刷新出现 404
 
-**Solution:** Vercel needs proper routing for SPA.
+**方案:** SPA 需要配置路由重写。
 
-Check `vercel.json`:
+检查 `vercel.json`:
 ```json
 {
   "rewrites": [
@@ -126,74 +126,74 @@ Check `vercel.json`:
 }
 ```
 
-### Issue: API Calls Failing
+### 问题:API 调用失败
 
-**Solution:** 
-1. Deploy backend first
-2. Update CORS settings in `server/src/index.js`:
+**方案:**
+1. 先部署后端
+2. 更新 `server/src/index.js` 中的 CORS 配置:
 ```javascript
-app.use(cors({ 
-  origin: ["http://localhost:5173", "https://your-vercel-app.vercel.app"],
-  credentials: true 
+app.use(cors({
+  origin: ["http://localhost:5173", "https://你的-vercel-应用.vercel.app"],
+  credentials: true
 }));
 ```
 
-### Issue: Environment Variables Not Working
+### 问题:环境变量不生效
 
-**Solution:** 
-1. Add in Vercel dashboard: Settings → Environment Variables
-2. Prefix with `VITE_` for frontend variables
-3. Redeploy after adding variables
-
----
-
-## 📊 What's Working vs Not Working
-
-### ✅ Currently Working (Frontend Only)
-- Landing page
-- Navigation
-- Static content
-- Routing between pages
-
-### ⚠️ Not Working Yet (Needs Backend)
-- AI resume generation
-- ATS analyzer
-- Template fetching
-- Mock interview
-- PDF export
-
-All these features require the backend to be deployed and connected.
+**方案:**
+1. 在 Vercel 控制台添加:Settings → Environment Variables
+2. 前端变量必须以 `VITE_` 为前缀
+3. 添加变量后需重新部署
 
 ---
 
-## 🎯 Next Steps
+## 📊 当前可用与不可用的功能
 
-1. **Deploy Backend** → Choose Render or Railway
-2. **Get Backend URL** → Copy the deployment URL
-3. **Update Frontend** → Add backend URL to environment variables
-4. **Test API** → Ensure all endpoints work
-5. **Update CORS** → Allow your Vercel domain in backend
+### ✅ 目前可用(仅前端)
+- 落地页
+- 导航
+- 静态内容
+- 页面间路由
+
+### ⚠️ 尚不可用(需要后端)
+- AI 简历生成
+- ATS 匹配诊断
+- 模板数据获取
+- 模拟面试
+- PDF 导出
+
+以上功能都需要后端完成部署并连通。
 
 ---
 
-## 📝 Quick Deploy Commands
+## 🎯 下一步
+
+1. **部署后端** → 选择 Render 或 Railway
+2. **获取后端地址** → 复制部署后的 URL
+3. **更新前端** → 把后端地址写入环境变量
+4. **测试 API** → 确认所有接口可用
+5. **更新 CORS** → 后端放行你的 Vercel 域名
+
+---
+
+## 📝 常用部署命令
 
 ```bash
-# Remove node_modules from git (if accidentally committed)
+# 把 node_modules 移出 git 追踪(如果误提交过)
 git rm -r --cached client/node_modules server/node_modules
 git commit -m "Remove node_modules"
 git push
 
-# Deploy to Vercel
+# 部署到 Vercel
 cd client
 vercel --prod
 
-# Or let GitHub auto-deploy
+# 或者交给 GitHub 自动部署
 git add .
-git commit -m "Update deployment config"
+git commit -m "更新部署配置"
 git push origin main
 ```
 
 ---
 
-**Need Help?** Check Vercel deployment logs or backend hosting platform logs for errors.
+**需要帮助?** 查看 Vercel 部署日志或后端托管平台日志中的报错信息。

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { openai } from "../services/openaiClient.js";
+import { openai, MODEL_NAME } from "../services/openaiClient.js";
 
 const router = Router();
 
@@ -9,25 +9,29 @@ router.post("/generate-summary", async (req, res) => {
     const { fullName, title, skills, tone } = req.body;
 
     const prompt = `
-Write a clean, concise ATS-safe resume summary.
+请为求职者撰写一段简洁、规范、可通过 ATS（自动简历筛选系统）的简历个人简介。
 
-Name: ${fullName}
-Title: ${title}
-Skills: ${skills && skills.length > 0 ? skills.join(", ") : "Not specified"}
-Tone: ${tone}
-Max: 4 lines.
-No fluff, no jargon spam, no emojis.
+姓名：${fullName}
+目标职位：${title}
+技能：${skills && skills.length > 0 ? skills.join("、") : "未提供"}
+语气：${tone}
+
+要求：
+- 不超过 4 行
+- 不用空话套话、不堆砌术语、不使用表情符号
+- 突出与该职位相关的核心能力与经验
+- 用中文输出
 `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODEL_NAME,
       messages: [{ role: "user", content: prompt }],
     });
 
     res.json({ summary: response.choices[0].message.content.trim() });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "AI summary generation failed." });
+    res.status(500).json({ error: "AI 个人简介生成失败。" });
   }
 });
 
@@ -37,26 +41,27 @@ router.post("/generate-bullets", async (req, res) => {
     const { jobTitle, company, responsibilities, tone = "professional" } = req.body;
 
     const prompt = `
-You are a professional resume writer. Generate 3-5 impactful bullet points for this work experience.
+你是一位专业的简历写作顾问。请为以下这段工作经历撰写 3-5 条有冲击力的要点描述。
 
-Job Title: ${jobTitle}
-Company: ${company}
-Responsibilities: ${responsibilities}
-Tone: ${tone}
+职位：${jobTitle}
+公司：${company}
+职责：${responsibilities}
+语气：${tone}
 
-Requirements:
-- Use STAR format (Situation, Task, Action, Result)
-- Include quantifiable metrics where possible
-- Start each bullet with strong action verbs
-- Keep bullets concise (1-2 lines each)
-- Make them ATS-friendly
-- Focus on achievements, not just duties
+要求：
+- 采用 STAR 结构（情境、任务、行动、结果）
+- 尽量包含可量化的指标
+- 每条以有力的动作动词开头
+- 每条保持简洁（1-2 行）
+- 便于通过 ATS 关键词筛选
+- 突出成就而非仅仅罗列职责
+- 用中文输出
 
-Return only the bullet points, one per line, without numbering.
+只返回要点本身，每行一条，不要编号。
 `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODEL_NAME,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -68,7 +73,7 @@ Return only the bullet points, one per line, without numbering.
     res.json({ bullets });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Bullet generation failed." });
+    res.status(500).json({ error: "经历要点生成失败。" });
   }
 });
 
@@ -78,30 +83,31 @@ router.post("/improve-bullet", async (req, res) => {
     const { bulletPoint, addMetrics = false } = req.body;
 
     const prompt = `
-You are a professional resume writer. Improve this resume bullet point:
+你是一位专业的简历写作顾问。请优化以下这条简历要点：
 
 "${bulletPoint}"
 
-Requirements:
-- Make it more impactful and results-oriented
-- Use strong action verbs
-${addMetrics ? "- Add or suggest specific metrics/numbers where appropriate" : ""}
-- Keep it concise (1-2 lines)
-- Follow STAR format if possible
-- Ensure it's ATS-friendly
+要求：
+- 使其更有冲击力、更突出结果
+- 使用有力的动作动词
+- ${addMetrics ? "- 在合适的地方补充或建议具体的量化数字/指标" : ""}
+- 保持简洁（1-2 行）
+- 尽可能遵循 STAR 结构
+- 便于通过 ATS 关键词筛选
+- 用中文输出
 
-Return only the improved bullet point.
+只返回优化后的要点。
 `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODEL_NAME,
       messages: [{ role: "user", content: prompt }],
     });
 
     res.json({ improvedBullet: response.choices[0].message.content.trim() });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Bullet improvement failed." });
+    res.status(500).json({ error: "要点优化失败。" });
   }
 });
 
@@ -111,24 +117,25 @@ router.post("/convert-to-star", async (req, res) => {
     const { experience, bullets } = req.body;
 
     const prompt = `
-Convert these experience details into STAR format (Situation, Task, Action, Result) bullet points.
+请将以下工作经历改写为 STAR 结构（情境、任务、行动、结果）的要点描述。
 
-Experience Context: ${experience}
-Current Bullets:
-${bullets && bullets.length > 0 ? bullets.join("\n") : "No bullets provided"}
+经历背景：${experience}
+现有要点：
+${bullets && bullets.length > 0 ? bullets.join("\n") : "未提供要点"}
 
-Requirements:
-- Create 3-5 STAR-formatted bullets
-- Include specific metrics and achievements
-- Use strong action verbs
-- Make each bullet achievement-focused
-- Keep concise and ATS-friendly
+要求：
+- 生成 3-5 条 STAR 格式要点
+- 包含具体的量化指标与成果
+- 使用有力的动作动词
+- 每条突出成就
+- 保持简洁并便于 ATS 筛选
+- 用中文输出
 
-Return only the bullet points, one per line.
+只返回要点，每行一条。
 `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODEL_NAME,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -140,7 +147,7 @@ Return only the bullet points, one per line.
     res.json({ starBullets });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "STAR conversion failed." });
+    res.status(500).json({ error: "STAR 结构改写失败。" });
   }
 });
 
@@ -150,29 +157,30 @@ router.post("/fill-gaps", async (req, res) => {
     const { gapPeriod, reason } = req.body;
 
     const prompt = `
-Create a brief, professional explanation for an employment gap to include in a resume or cover letter.
+请为简历或求职信撰写一段简短、专业的空窗期解释。
 
-Gap Period: ${gapPeriod}
-Reason: ${reason}
+空窗期：${gapPeriod}
+原因：${reason}
 
-Requirements:
-- Keep it positive and professional
-- Focus on skills developed or activities during the gap
-- Maximum 2-3 sentences
-- Make it honest but compelling
+要求：
+- 保持积极、专业的口吻
+- 侧重空窗期中学到的技能或参与的活动
+- 最多 2-3 句话
+- 诚实但有力
+- 用中文输出
 
-Return only the explanation text.
+只返回解释文本。
 `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODEL_NAME,
       messages: [{ role: "user", content: prompt }],
     });
 
     res.json({ explanation: response.choices[0].message.content.trim() });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Gap explanation generation failed." });
+    res.status(500).json({ error: "空窗期解释生成失败。" });
   }
 });
 

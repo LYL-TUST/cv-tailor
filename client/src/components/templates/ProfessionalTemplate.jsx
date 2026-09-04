@@ -4,18 +4,18 @@ import React from 'react';
 const ProfessionalPreview = ({ resume }) => (
     <div className="resume-card-professional">
         <div className="sidebar">
-            <h1>{resume.name || "YOUR NAME"}</h1>
-            <h3>{resume.title || "Your Professional Title"}</h3>
+            <h1>{resume.name || "你的姓名"}</h1>
+            <h3>{resume.title || "你的目标职位"}</h3>
 
-            <h4>CONTACT</h4>
-            <div className="contact-item">📞 {resume.phone || "(123) 456-7890"}</div>
-            <div className="contact-item">✉️ {resume.email || "email@example.com"}</div>
-            <div className="contact-item">📍 {resume.location || "City, State"}</div>
+            <h4>联系方式</h4>
+            <div className="contact-item">📞 {resume.phone || "138-0000-0000"}</div>
+            <div className="contact-item">✉️ {resume.email || "you@example.com"}</div>
+            <div className="contact-item">📍 {resume.location || "所在城市"}</div>
             {resume.linkedin && <div className="contact-item">💼 {resume.linkedin}</div>}
 
             {resume.summary && (
                 <>
-                    <h4>SUMMARY</h4>
+                    <h4>个人简介</h4>
                     <p style={{ fontSize: '12px', lineHeight: '1.6' }}>
                         {resume.summary}
                     </p>
@@ -26,12 +26,12 @@ const ProfessionalPreview = ({ resume }) => (
         <div className="main-content">
             {resume.experiences && resume.experiences.some(exp => exp.company || exp.role) && (
                 <>
-                    <h4>PROFESSIONAL EXPERIENCE</h4>
+                    <h4>工作经历</h4>
                     {resume.experiences.map((exp, i) => (
                         (exp.company || exp.role) && (
                             <div key={i} style={{ marginBottom: '20px' }}>
-                                <div className="job-title">{exp.role || "Position"}</div>
-                                <div className="company">{exp.company || "Company"} | {exp.duration || "Date"}</div>
+                                <div className="job-title">{exp.role || "职位"}</div>
+                                <div className="company">{exp.company || "公司"} | {exp.duration || "时间"}</div>
                                 <ul style={{ paddingLeft: '18px', marginTop: '6px' }}>
                                     {exp.bullets.filter(b => b.trim()).map((bullet, bi) => (
                                         <li key={bi} style={{ fontSize: '12px', lineHeight: '1.5', marginBottom: '4px' }}>{bullet}</li>

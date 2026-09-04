@@ -1,33 +1,36 @@
+import PageHead from "../components/PageHead";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ACCENT_COLORS, FONT_OPTIONS, getTheme, setTheme } from "../utils/theme";
+import { track } from "../utils/analytics";
 
 const TEMPLATES = [
   {
     id: 'professional',
-    name: 'Professional',
-    description: 'Two-column layout with sidebar for contact info',
-    category: 'Modern',
+    name: '商务双栏',
+    description: '双栏布局，侧边栏放置联系方式',
+    category: '现代',
     previewImage: '/template-professional.png'
   },
   {
     id: 'classy',
-    name: 'Classy',
-    description: 'Traditional centered design with blue section headers',
-    category: 'Classic',
+    name: '经典居中',
+    description: '传统居中版式，蓝色分区标题',
+    category: '经典',
     previewImage: '/template-classy.png'
   },
   {
     id: 'simple',
-    name: 'Simple',
-    description: 'Minimal single-column layout with clean typography',
-    category: 'Minimal',
+    name: '极简单栏',
+    description: '简约单栏布局，排版清晰易读',
+    category: '极简',
     previewImage: '/template-simple.png'
   },
   {
     id: 'stylish',
-    name: 'Stylish',
-    description: 'Elegant design with navy header and gold accents',
-    category: 'Modern',
+    name: '优雅深蓝',
+    description: '深蓝页眉搭配金色点缀的优雅设计',
+    category: '现代',
     previewImage: '/template-stylish.png'
   }
 ];
@@ -35,6 +38,7 @@ const TEMPLATES = [
 export default function Templates() {
   const navigate = useNavigate();
   const [selected, setSelected] = useState('professional');
+  const [theme, setThemeState] = useState(getTheme());
 
   const handleUseTemplate = () => {
     if (selected) {
@@ -42,12 +46,69 @@ export default function Templates() {
     }
   };
 
+  const changeAccent = (color) => {
+    const next = setTheme({ accent: color.accent });
+    setThemeState(next);
+    track("theme_change", { kind: "accent", value: color.id });
+  };
+
+  const changeFont = (font) => {
+    const next = setTheme({ font: font.stack });
+    setThemeState(next);
+    track("theme_change", { kind: "font", value: font.id });
+  };
+
   return (
     <section>
-      <h2 className="page-title">Choose a Template</h2>
-      <p className="page-subtitle">
-        Select from {TEMPLATES.length} professional resume templates
-      </p>
+      <PageHead
+        kicker="开始创作"
+        title="选择简历模板"
+        icon="🎨"
+        sub={`从 ${TEMPLATES.length} 套专业模板中挑选，均兼容 ATS 简历筛选系统。`}
+      />
+
+      {/* 主题定制：主色调 + 字体（CSS 变量全局生效，编辑器/导出同步） */}
+      <div className="dash-card" style={{ marginBottom: '24px' }}>
+        <h3>🎨 主题定制</h3>
+        <p style={{ fontSize: '13px', color: '#666', marginBottom: '12px' }}>
+          选择主色调与字体，所有模板的预览与导出会同步更新。
+        </p>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 'bold' }}>主色调：</span>
+          {ACCENT_COLORS.map((color) => (
+            <button
+              key={color.id}
+              title={color.name}
+              onClick={() => changeAccent(color)}
+              style={{
+                width: '30px',
+                height: '30px',
+                borderRadius: '50%',
+                background: color.accent,
+                border: theme.accent === color.accent ? '3px solid #1d4ed8' : '2px solid #e2e8f0',
+                cursor: 'pointer',
+                padding: 0,
+              }}
+              aria-label={color.name}
+            />
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '13px', fontWeight: 'bold' }}>字体：</span>
+          {FONT_OPTIONS.map((font) => (
+            <button
+              key={font.id}
+              onClick={() => changeFont(font)}
+              className={theme.font === font.stack ? 'btn-primary' : 'btn-ghost'}
+              style={{ padding: '6px 14px', fontFamily: font.stack }}
+            >
+              {font.name}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="template-grid">
         {TEMPLATES.map((t) => (
@@ -89,7 +150,7 @@ export default function Templates() {
               </div>
             </div>
             <div className="template-status">
-              {selected === t.id ? "✓ Selected" : "Click to select"}
+              {selected === t.id ? "✓ 已选中" : "点击选择"}
             </div>
           </div>
         ))}
@@ -98,7 +159,7 @@ export default function Templates() {
       {selected && (
         <div style={{ marginTop: '40px', textAlign: 'center' }}>
           <button className="btn-primary" onClick={handleUseTemplate}>
-            Use This Template
+            使用此模板
           </button>
         </div>
       )}

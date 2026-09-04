@@ -1,5 +1,8 @@
+import PageHead from "../components/PageHead";
 import { useState } from "react";
 import * as api from "../utils/api";
+import { track } from "../utils/analytics";
+import { saveInterviewSession } from "../utils/historyStore";
 
 export default function Interview() {
   const [jobTitle, setJobTitle] = useState("");
@@ -10,10 +13,12 @@ export default function Interview() {
   const [evaluation, setEvaluation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [sessionRecords, setSessionRecords] = useState([]); // 本次练习已完成的 Q&A
+  const [sessionSaved, setSessionSaved] = useState(false);
 
   const generateQuestions = async () => {
     if (!jobTitle.trim()) {
-      setError("Please enter a job title");
+      setError("请输入目标职位");
       return;
     }
 
@@ -21,6 +26,8 @@ export default function Interview() {
     setError(null);
     setQuestions([]);
     setEvaluation(null);
+    setSessionRecords([]);
+    setSessionSaved(false);
 
     try {
       const result = await api.generateInterviewQuestions({
@@ -32,7 +39,7 @@ export default function Interview() {
       setQuestions(result.questions || []);
       setCurrentQuestionIndex(0);
     } catch (err) {
-      setError(`Failed to generate questions: ${err.message}`);
+      setError(`生成面试题失败: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -40,7 +47,7 @@ export default function Interview() {
 
   const evaluateUserAnswer = async () => {
     if (!userAnswer.trim()) {
-      setError("Please write your answer first");
+      setError("请先写下你的回答");
       return;
     }
 
@@ -56,11 +63,44 @@ export default function Interview() {
       });
 
       setEvaluation(result);
+      // 汇总到本次会话记录（同一题重答则覆盖旧记录）
+      setSessionRecords((prev) => {
+        const others = prev.filter((r) => r.question !== currentQuestion.question);
+        return [...others, {
+          type: currentQuestion.type || "",
+          category: currentQuestion.category || "",
+          question: currentQuestion.question || "",
+          userAnswer,
+          score: result.score ?? null,
+          feedback: result.feedback || "",
+          strengths: result.strengths || [],
+          improvements: result.improvements || [],
+          starCompliance: result.starCompliance,
+          improvedAnswer: result.improvedAnswer || "",
+        }];
+      });
+      setSessionSaved(false);
     } catch (err) {
-      setError(`Failed to evaluate answer: ${err.message}`);
+      setError(`回答评估失败: ${err.message}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  /** 保存本次练习到个人中心历史 */
+  const saveSession = () => {
+    if (sessionRecords.length === 0) {
+      setError("还没有已评估的回答，请先完成至少一题再保存");
+      return;
+    }
+    const session = saveInterviewSession({
+      jobTitle,
+      interviewType,
+      records: sessionRecords,
+    });
+    setSessionSaved(true);
+    setError(null);
+    track("interview_history_save", { questions: session.questionCount });
   };
 
   const nextQuestion = () => {
@@ -83,19 +123,21 @@ export default function Interview() {
 
   return (
     <section>
-      <h2 className="page-title">Mock Interview</h2>
-      <p className="page-subtitle">
-        Practice role-specific interview questions and get AI feedback.
-      </p>
+      <PageHead
+        kicker="打磨优化"
+        title="模拟面试"
+        icon="🎤"
+        sub="按目标岗位练习面试问答，并获得 AI 逐条反馈。"
+      />
 
       {/* Setup Form */}
       <div style={{ marginBottom: '24px', padding: '20px', background: '#f8f9fa', borderRadius: '8px' }}>
         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-          Job Title
+          目标职位
         </label>
         <input
           type="text"
-          placeholder="e.g., Frontend Developer, Product Manager"
+          placeholder="例如：AI 产品经理、数据分析师"
           value={jobTitle}
           onChange={(e) => setJobTitle(e.target.value)}
           style={{
@@ -108,7 +150,7 @@ export default function Interview() {
         />
 
         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-          Question Type
+          题目类型
         </label>
         <select
           value={interviewType}
@@ -121,9 +163,9 @@ export default function Interview() {
             marginBottom: '16px',
           }}
         >
-          <option value="mixed">Mixed (Behavioral + Technical)</option>
-          <option value="behavioral">Behavioral Only</option>
-          <option value="technical">Technical Only</option>
+          <option value="mixed">混合（行为面 + 技术面）</option>
+          <option value="behavioral">仅行为面</option>
+          <option value="technical">仅技术面</option>
         </select>
 
         <button
@@ -131,7 +173,7 @@ export default function Interview() {
           onClick={generateQuestions}
           disabled={loading || !jobTitle.trim()}
         >
-          {loading ? 'Generating Questions...' : 'Generate Interview Questions'}
+          {loading ? '正在生成题目...' : '生成面试题'}
         </button>
       </div>
 
@@ -151,7 +193,26 @@ export default function Interview() {
       {/* Questions Display */}
       {questions.length > 0 && currentQuestion && (
         <div>
-          {/* Question Navigation */}
+          {/* 保存到个人中心 */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
+            marginBottom: '12px', padding: '10px 14px', background: '#f0fdf4',
+            border: '1px solid #bbf7d0', borderRadius: '8px',
+          }}>
+            <span style={{ fontSize: '13px', color: '#166534' }}>
+              已答 {sessionRecords.length} 题{sessionSaved && ' · ✅ 已保存到个人中心'}
+            </span>
+            <button
+              className="btn-ghost"
+              onClick={saveSession}
+              disabled={sessionRecords.length === 0 || sessionSaved}
+              style={{ marginLeft: 'auto', fontSize: '13px', padding: '5px 12px' }}
+            >
+              💾 保存本次练习
+            </button>
+          </div>
+
+          {/* 题目导航 */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -159,7 +220,7 @@ export default function Interview() {
             marginBottom: '16px',
           }}>
             <span style={{ fontSize: '14px', color: '#666' }}>
-              Question {currentQuestionIndex + 1} of {questions.length}
+              第 {currentQuestionIndex + 1} / {questions.length}
             </span>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
@@ -167,19 +228,19 @@ export default function Interview() {
                 onClick={previousQuestion}
                 disabled={currentQuestionIndex === 0}
               >
-                ← Previous
+                ← 上一题
               </button>
               <button
                 className="btn-ghost"
                 onClick={nextQuestion}
                 disabled={currentQuestionIndex === questions.length - 1}
               >
-                Next →
+                下一题 →
               </button>
             </div>
           </div>
 
-          {/* Current Question */}
+          {/* Current 第 */}
           <div className="interview-card" style={{
             padding: '20px',
             background: '#fff',
@@ -197,16 +258,16 @@ export default function Interview() {
               fontWeight: '500',
               marginBottom: '12px',
             }}>
-              {currentQuestion.type || 'General'} • {currentQuestion.category || 'Interview Question'}
+              {currentQuestion.type || '综合'} • {currentQuestion.category || '面试题'}
             </div>
 
             <p style={{ fontSize: '18px', fontWeight: '500', marginBottom: '8px' }}>
-              <strong>Q:</strong> {currentQuestion.question}
+              <strong>问：</strong> {currentQuestion.question}
             </p>
 
             {currentQuestion.answerFramework && (
               <p className="muted" style={{ fontSize: '14px', color: '#666' }}>
-                💡 Use {currentQuestion.answerFramework} format in your answer
+                💡 建议用 {currentQuestion.answerFramework} 结构组织你的回答
               </p>
             )}
           </div>
@@ -214,12 +275,12 @@ export default function Interview() {
           {/* Answer Input */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-              Your Answer
+              你的回答
             </label>
             <textarea
               value={userAnswer}
               onChange={(e) => setUserAnswer(e.target.value)}
-              placeholder="Type your answer here..."
+              placeholder="在此输入你的回答..."
               rows={6}
               style={{
                 width: '100%',
@@ -236,7 +297,7 @@ export default function Interview() {
               disabled={loading || !userAnswer.trim()}
               style={{ marginTop: '12px' }}
             >
-              {loading ? 'Evaluating...' : 'Get AI Feedback'}
+              {loading ? '正在评估...' : '获取 AI 反馈'}
             </button>
           </div>
 
@@ -249,7 +310,7 @@ export default function Interview() {
               border: '1px solid #4CAF50',
             }}>
               <h4 style={{ fontSize: '20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                📊 Evaluation Score:
+                📊 评估得分：
                 <strong style={{
                   color: evaluation.score >= 7 ? '#4CAF50' : evaluation.score >= 5 ? '#FF9800' : '#f44336',
                   fontSize: '24px',
@@ -259,14 +320,14 @@ export default function Interview() {
               </h4>
 
               <div style={{ marginBottom: '16px' }}>
-                <strong style={{ display: 'block', marginBottom: '8px' }}>Overall Feedback:</strong>
+                <strong style={{ display: 'block', marginBottom: '8px' }}>整体反馈：</strong>
                 <p style={{ color: '#333' }}>{evaluation.feedback}</p>
               </div>
 
               {evaluation.strengths && evaluation.strengths.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>
                   <strong style={{ display: 'block', marginBottom: '8px', color: '#4CAF50' }}>
-                    ✅ Strengths:
+                    ✅ 回答亮点：
                   </strong>
                   <ul style={{ margin: 0, paddingLeft: '20px' }}>
                     {evaluation.strengths.map((strength, i) => (
@@ -279,7 +340,7 @@ export default function Interview() {
               {evaluation.improvements && evaluation.improvements.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>
                   <strong style={{ display: 'block', marginBottom: '8px', color: '#f57c00' }}>
-                    💡 Areas for Improvement:
+                    💡 待改进之处：
                   </strong>
                   <ul style={{ margin: 0, paddingLeft: '20px' }}>
                     {evaluation.improvements.map((improvement, i) => (
@@ -296,15 +357,15 @@ export default function Interview() {
                   borderRadius: '8px',
                   marginBottom: '16px',
                 }}>
-                  <strong>STAR Format Compliance:</strong>{' '}
-                  {evaluation.starCompliance ? '✅ Yes' : '⚠️ Could be improved'}
+                  <strong>STAR 结构符合度：</strong>{' '}
+                  {evaluation.starCompliance ? '✅ 符合' : '⚠️ 可再加强'}
                 </div>
               )}
 
               {evaluation.improvedAnswer && (
                 <div>
                   <strong style={{ display: 'block', marginBottom: '8px' }}>
-                    🌟 Suggested Improved Answer:
+                    🌟 参考答案示例：
                   </strong>
                   <p style={{
                     padding: '12px',
@@ -323,7 +384,7 @@ export default function Interview() {
 
       {questions.length === 0 && !loading && (
         <div className="empty-state">
-          <p>Enter a job title and click "Generate Interview Questions" to start practicing.</p>
+          <p>输入目标职位并点击「生成面试题」开始练习。</p>
         </div>
       )}
     </section>

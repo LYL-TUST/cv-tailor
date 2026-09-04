@@ -1,110 +1,110 @@
-# 🚀 Quick Fix: Enable AI Features
+# 🚀 快速排查:启用 AI 功能
 
-## Problem
-The AI features aren't working because the backend server isn't running or doesn't have a valid OpenAI API key.
+## 问题
+AI 功能不可用,通常是因为后端服务未启动,或没有配置有效的 OpenAI API Key。
 
-## Solution - 3 Steps
+## 解决方案 - 3 步搞定
 
-### Step 1: Get OpenAI API Key
+### 第 1 步:获取 OpenAI API Key
 
-1. Go to https://platform.openai.com/api-keys
-2. Sign in (or create a free account)
-3. Click **"Create new secret key"**
-4. Copy the key (it starts with `sk-proj-...` or `sk-...`)
+1. 打开 https://platform.openai.com/api-keys
+2. 登录(或注册免费账号)
+3. 点击 **"Create new secret key"**
+4. 复制密钥(以 `sk-proj-...` 或 `sk-...` 开头)
 
-### Step 2: Add API Key to Backend
+### 第 2 步:把 API Key 配置到后端
 
-Edit the `.env` file in the `server` folder:
+编辑 `server` 文件夹下的 `.env` 文件:
 
 ```bash
 cd server
 nano .env
 ```
 
-Replace the content with:
+将内容替换为:
 ```
 PORT=5000
-OPENAI_API_KEY=sk-proj-YOUR-ACTUAL-KEY-HERE
+OPENAI_API_KEY=sk-proj-你的真实密钥
 NODE_ENV=development
 ```
 
-Save and exit (Ctrl+X, then Y, then Enter in nano)
+保存并退出(nano 编辑器:Ctrl+X,然后 Y,然后回车)
 
-### Step 3: Start Both Servers
+### 第 3 步:启动前后端服务
 
-**Terminal 1 - Backend:**
+**终端 1 - 后端:**
 ```bash
 cd server
 npm run dev
 ```
 
-Wait for: `🚀 Server running on http://localhost:5000`
+看到 `🚀 Server running on http://localhost:5000` 即启动成功。
 
-**Terminal 2 - Frontend:**
+**终端 2 - 前端:**
 ```bash
-cd client  
+cd client
 npm run dev
 ```
 
-Wait for: `Local: http://localhost:5173/`
+看到 `Local: http://localhost:5173/` 即启动成功。
 
-### Step 4: Test
+### 第 4 步:验证
 
-1. Open http://localhost:5173 in your browser
-2. Go to **Editor** page
-3. Fill in:
-   - Name: "John Doe"
-   - Title: "Software Engineer"  
-   - Skills: "React, Node.js, Python"
-4. Click **"Generate with AI ✨"**
-5. Should see AI-generated summary appear!
+1. 浏览器打开 http://localhost:5173
+2. 进入**编辑器**页面
+3. 填写:
+   - 姓名:"张三"
+   - 目标职位:"软件工程师"
+   - 技能:"React, Node.js, Python"
+4. 点击 **"AI 生成个人简介 ✨"**
+5. 应能看到 AI 生成的简介出现在输入框中!
 
 ---
 
-## Still Not Working?
+## 还是不能用?
 
-### Check Backend Logs
-Look for errors in Terminal 1 (backend). Common issues:
-- ❌ `Error: Invalid API key` → Wrong OpenAI key
-- ❌ `EADDRINUSE` → Port 5000 already in use
-- ❌ `MODULE_NOT_FOUND` → Run `npm install` in server folder
+### 查看后端日志
+观察终端 1(后端)的报错,常见问题:
+- ❌ `Error: Invalid API key` → OpenAI Key 填错了
+- ❌ `EADDRINUSE` → 5000 端口被占用(可能有旧服务没关)
+- ❌ `MODULE_NOT_FOUND` → 在 server 目录重新执行 `npm install`
 
-### Test Backend Directly
+### 直接测试后端
 ```bash
 curl http://localhost:5000/api/templates
 ```
 
-Should return JSON with templates.
+应返回包含模板信息的 JSON。
 
-### Check Frontend Console
-1. Open browser DevTools (F12)
-2. Go to Console tab
-3. Look for errors like:
-   - `Failed to fetch` → Backend not running
-   - `CORS error` → Backend/frontend mismatch
+### 检查前端控制台
+1. 打开浏览器开发者工具(F12)
+2. 切到 Console 标签
+3. 留意以下报错:
+   - `Failed to fetch` → 后端没启动
+   - `CORS error` → 前后端域名配置不匹配
 
 ---
 
-## Next: Deploy to Render
+## 下一步:部署到 Render
 
-Once local testing works, deploy to Render so it works online:
+本地跑通后,可以部署到 Render 让应用上线:
 
-1. Push code to GitHub ✅ (already done)
-2. Go to https://render.com
-3. Sign up/Login with GitHub
-4. Click **"New +" → "Web Service"**
-5. Connect your `ai_resume_builder` repository
-6. Settings:
+1. 把代码推到 GitHub ✅(已完成)
+2. 打开 https://render.com
+3. 用 GitHub 注册/登录
+4. 点击 **"New +" → "Web Service"**
+5. 关联你的 `ai_resume_builder` 仓库
+6. 配置项:
    - **Name:** ai-resume-builder-api
    - **Root Directory:** `server`
    - **Build Command:** `npm install`
    - **Start Command:** `npm start`
-7. Add Environment Variable:
+7. 添加环境变量:
    - **Key:** `OPENAI_API_KEY`
-   - **Value:** Your OpenAI key
-8. Click **"Create Web Service"**
+   - **Value:** 你的 OpenAI 密钥
+8. 点击 **"Create Web Service"**
 
-Wait 5-10 minutes for deployment. You'll get a URL like:
+等待 5-10 分钟完成部署,你会得到类似这样的地址:
 `https://ai-resume-builder-api.onrender.com`
 
-Then update frontend to use this URL!
+然后把这个地址配置到前端的 API URL 即可上线!

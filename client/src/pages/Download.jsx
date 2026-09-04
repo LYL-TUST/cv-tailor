@@ -5,11 +5,14 @@ import ProfessionalPreview from "../components/templates/ProfessionalTemplate";
 import ClassyPreview from "../components/templates/ClassyTemplate";
 import SimplePreview from "../components/templates/SimpleTemplate";
 import StylishPreview from "../components/templates/StylishTemplate";
+import { track } from "../utils/analytics";
+import * as api from "../utils/api";
 
 export default function Download() {
   const [resumeData, setResumeData] = useState(null); // ATS format from localStorage
   const [editorResume, setEditorResume] = useState(null); // Mapped format for components
   const [loading, setLoading] = useState(false);
+  const [docxLoading, setDocxLoading] = useState(false);
   const [templateId, setTemplateId] = useState('professional');
   const printRef = useRef(null);
 
@@ -90,11 +93,30 @@ export default function Download() {
 
       const fileName = `${editorResume.name?.replace(/\s+/g, '_') || 'Resume'}_Resume.pdf`;
       pdf.save(fileName);
+      track("pdf_export", { status: "success" });
     } catch (error) {
+      track("pdf_export", { status: "fail", reason: String(error.message || error).slice(0, 120) });
       console.error('PDF generation failed:', error);
-      alert('Failed to generate PDF. Please try again.');
+      alert('PDF 生成失败，请重试。');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const downloadDOCX = async () => {
+    if (!resumeData) return;
+    setDocxLoading(true);
+
+    try {
+      const startedAt = Date.now();
+      await api.downloadDOCX({ resumeData });
+      track("docx_export", { status: "success", ms: Date.now() - startedAt });
+    } catch (error) {
+      track("docx_export", { status: "fail", reason: String(error.message || error).slice(0, 120) });
+      console.error('DOCX generation failed:', error);
+      alert(`DOCX 生成失败：${error.message}`);
+    } finally {
+      setDocxLoading(false);
     }
   };
 
@@ -120,7 +142,7 @@ export default function Download() {
       if (resumeData.experience && resumeData.experience.length > 0) {
         textContent += 'EXPERIENCE\n\n';
         resumeData.experience.forEach((exp) => {
-          textContent += `${exp.position || 'Position'} — ${exp.company || 'Company'}\n`;
+          textContent += `${exp.position || '职位'} — ${exp.company || '公司'}\n`;
           if (exp.duration) textContent += `${exp.duration}\n`;
           if (exp.bullets) {
             exp.bullets.forEach((bullet) => {
@@ -139,24 +161,26 @@ export default function Download() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      track("txt_export", { status: "success" });
     } catch (error) {
+      track("txt_export", { status: "fail", reason: String(error.message || error).slice(0, 120) });
       console.error('Text download failed:', error);
     }
   };
 
   return (
     <section style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
-      <h2 className="page-title">Download Resume</h2>
+      <h2 className="page-title">导出简历</h2>
       <p className="page-subtitle">
-        Export your resume in ATS-friendly PDF format
+        将简历导出为兼容 ATS 的 PDF 格式
         {templateId && <span style={{ marginLeft: '8px', color: '#2563eb' }}>
-          (Template: {templateId.charAt(0).toUpperCase() + templateId.slice(1)})
+          （模板：{templateId.charAt(0).toUpperCase() + templateId.slice(1)})
         </span>}
       </p>
 
       {!editorResume && (
         <div style={{ padding: '16px', background: '#fff3cd', color: '#856404', borderRadius: '8px' }}>
-          ⚠️ No resume data found. Please create your resume in the Editor first.
+          ⚠️ 未找到简历数据，请先在「编辑器」中创建简历。
         </div>
       )}
 
@@ -171,7 +195,16 @@ export default function Download() {
               disabled={loading || !editorResume}
               style={{ fontSize: '16px', padding: '12px' }}
             >
-              {loading ? 'Generating PDF...' : '📄 Download PDF'}
+              {loading ? '正在生成 PDF...' : '📄 下载 PDF'}
+            </button>
+
+            <button
+              className="btn-primary"
+              onClick={downloadDOCX}
+              disabled={docxLoading || !editorResume}
+              style={{ fontSize: '16px', padding: '12px' }}
+            >
+              {docxLoading ? '正在生成 DOCX...' : '📝 下载 Word（DOCX）'}
             </button>
 
             <button
@@ -179,7 +212,7 @@ export default function Download() {
               onClick={downloadText}
               disabled={!editorResume}
             >
-              📝 Download Text Version
+              📄 下载纯文本版
             </button>
 
             <div style={{
@@ -190,15 +223,15 @@ export default function Download() {
               fontSize: '14px',
               lineHeight: '1.5'
             }}>
-              <strong>💡 Visual PDF Download</strong><br />
-              The PDF will now look exactly like the preview on the right, preserving your chosen template's fonts, colors, and layout.
+              <strong>💡 可视化 PDF 导出</strong><br />
+              导出的 PDF 将与右侧预览完全一致，保留所选模板的字体、配色与排版。
             </div>
           </div>
         </div>
 
         {/* Right Column: Visual Preview */}
         <div style={{ minHeight: '500px' }}>
-          <h3 style={{ fontSize: '18px', marginBottom: '16px' }}>Document Preview</h3>
+          <h3 style={{ fontSize: '18px', marginBottom: '16px' }}>文档预览</h3>
           {editorResume ? (
             <div
               style={{
@@ -227,7 +260,7 @@ export default function Download() {
               justifyContent: 'center',
               color: '#6c757d'
             }}>
-              Preview will appear here
+              预览将显示在这里
             </div>
           )}
         </div>
