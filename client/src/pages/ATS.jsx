@@ -1,7 +1,8 @@
 import PageHead from "../components/PageHead";
 import ResumePicker from "../components/ResumePicker";
+import CollapsibleSection from "../components/CollapsibleSection";
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import * as api from "../utils/api";
 import { track } from "../utils/analytics";
 import { addAtsRecord } from "../utils/historyStore";
@@ -15,25 +16,7 @@ const LEVEL_META = {
   missing: { label: '未体现',   color: '#721c24', bg: '#f8d7da' },
 };
 
-/** 结果区可折叠模块：标题行(标题 + 摘要徽标 + 箭头)整行可点，展开/收起内容 */
-function AtsSection({ icon, title, meta, defaultOpen = true, children }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className={`ats-sec${open ? " open" : ""}`}>
-      <button
-        type="button"
-        className="ats-sec-head"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-      >
-        <span className="ats-sec-title">{icon} {title}</span>
-        {meta != null && meta !== "" && <span className="ats-sec-meta">{meta}</span>}
-        <span className="ats-sec-arrow" aria-hidden="true">▸</span>
-      </button>
-      {open && <div className="ats-sec-body">{children}</div>}
-    </div>
-  );
-}
+/** 结果区可折叠模块:共享组件 CollapsibleSection(标题行 + 摘要徽标 + 箭头) */
 
 export default function ATS() {
   const navigate = useNavigate();
@@ -294,8 +277,11 @@ export default function ATS() {
       )}
 
       {!resumeData && (
-        <div className="notice notice-warn" style={{ marginBottom: '16px' }}>
-          ⚠️ 未找到可用的简历数据，请先在「编辑器」中创建或完善简历。
+        <div className="notice notice-warn" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <span>⚠️ 未找到可用的简历数据，请先在「编辑器」中创建或完善简历。</span>
+          <Link to="/import" className="btn-ghost" style={{ fontSize: '12px', padding: '4px 12px', flexShrink: 0 }}>
+            📥 去导入简历
+          </Link>
         </div>
       )}
 
@@ -366,7 +352,7 @@ export default function ATS() {
 
           {/* 增量1：逐条职责语义匹配 */}
           {semantic?.requirements && semantic.requirements.length > 0 && (
-            <AtsSection
+            <CollapsibleSection
               icon="📋"
               title="逐条职责语义匹配"
               meta={(() => {
@@ -405,12 +391,12 @@ export default function ATS() {
                   );
                 })}
               </div>
-            </AtsSection>
+            </CollapsibleSection>
           )}
 
           {/* 增量2：建议质量 verifier */}
           {semantic?.priorityActions && semantic.priorityActions.length > 0 && (
-            <AtsSection
+            <CollapsibleSection
               icon="✅"
               title="建议质量独立校验"
               meta={(() => {
@@ -464,11 +450,11 @@ export default function ATS() {
                   校验小结：{verification.summary}
                 </p>
               )}
-            </AtsSection>
+            </CollapsibleSection>
           )}
 
           {/* 基础层：命中 / 缺失关键词 */}
-          <AtsSection
+          <CollapsibleSection
             icon="🔑"
             title="关键词层匹配"
             meta={`${analysis.matchedKeywords?.length || 0} 命中 · ${analysis.missingKeywords?.length || 0} 缺失`}
@@ -499,7 +485,7 @@ export default function ATS() {
                 </div>
               </div>
             </div>
-          </AtsSection>
+          </CollapsibleSection>
 
           {/* 入口：带着这份 JD 去模拟面试（演练闭环） */}
           <div style={{

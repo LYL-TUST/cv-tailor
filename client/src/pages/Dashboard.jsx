@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listVersions } from "../utils/resumeStore";
+import { listVersions, getActiveVersion } from "../utils/resumeStore";
 import { listAtsRecords, listInterviewSessions } from "../utils/historyStore";
+import { getEvents } from "../utils/analytics";
 
 /**
- * 工作台(首页)—— 欢迎区 + 快捷入口
+ * 工作台(首页)—— 欢迎区 + 旅程进度流 + 快捷入口
  * 上:欢迎 hero,根据本地简历情况给出主操作(继续编辑 / 导入);
+ * 中:五步进度流(导入 → 编辑 → 诊断 → 面试 → 导出),把产品主线叙事显性化;
  * 下:按旅程分组的快捷入口卡,一键直达各工具。
  */
 
@@ -32,19 +34,35 @@ const QUICK_GROUPS = [
 export default function Dashboard() {
   const [versionCount, setVersionCount] = useState(0);
   const [activeName, setActiveName] = useState("");
-  const [atsCount, setAtsCount] = useState(0);
+  const [activeReady, setActiveReady] = useState(false);
+  const [atsRecords, setAtsRecords] = useState([]);
   const [interviewCount, setInterviewCount] = useState(0);
+  const [pdfExports, setPdfExports] = useState(0);
 
   useEffect(() => {
     const versions = listVersions();
     setVersionCount(versions.length);
-    const active = versions.find((v) => v.active) || versions[0];
+    const active = getActiveVersion() || versions.find((v) => v.active) || versions[0];
     setActiveName(active ? active.name : "");
-    setAtsCount(listAtsRecords().length);
+    setActiveReady(!!(active && active.data && !active.data.empty));
+    setAtsRecords(listAtsRecords());
     setInterviewCount(listInterviewSessions().length);
+    setPdfExports(getEvents().filter((e) => e.e === "pdf_export" && e.p?.status === "success").length);
   }, []);
 
   const hasResume = versionCount > 0;
+
+  // ===== 五步旅程进度流:把「导入 → 编辑 → 诊断 → 面试 → 导出」主线显性化 =====
+  const lastAts = atsRecords[0] || null;
+  const steps = [
+    { to: "/import", icon: "📥", label: "导入", done: hasResume, sub: hasResume ? `${versionCount} 个版本` : "尚无简历" },
+    { to: "/editor", icon: "✏️", label: "编辑", done: activeReady, sub: activeReady ? `「${activeName || "当前简历"}」` : "完善内容" },
+    { to: "/ats", icon: "🎯", label: "诊断", done: atsRecords.length > 0, sub: lastAts ? `上次 ${lastAts.score ?? "?"} 分` : "未诊断" },
+    { to: "/interview", icon: "🎤", label: "面试", done: interviewCount > 0, sub: interviewCount > 0 ? `练了 ${interviewCount} 场` : "未练习" },
+    { to: "/editor", icon: "📄", label: "导出", done: pdfExports > 0, sub: pdfExports > 0 ? `PDF ×${pdfExports}` : "待导出" },
+  ];
+  // 第一个未完成的步骤 = 当前进行中
+  const currentIdx = steps.findIndex((s) => !s.done);
 
   return (
     <div className="dash">
@@ -92,7 +110,7 @@ export default function Dashboard() {
             <span className="dash-stat-label">简历版本</span>
           </div>
           <div className="dash-stat">
-            <span className="dash-stat-num">{atsCount}</span>
+            <span className="dash-stat-num">{atsRecords.length}</span>
             <span className="dash-stat-label">ATS 分析</span>
           </div>
           <div className="dash-stat">
@@ -105,6 +123,29 @@ export default function Dashboard() {
           </div>
         </div>
       </section>
+
+      {/* ===== 旅程进度流 ===== */}
+      <nav className="dash-steps" aria-label="求职准备进度">
+        {steps.map((s, i) => (
+          <Link
+            key={s.label}
+            to={s.to}
+            className={[
+              "dash-step",
+              s.done ? " done" : "",
+              i === currentIdx ? " current" : "",
+            ].join("")}
+            title={s.sub}
+          >
+            <span className="dash-step-node" aria-hidden="true">{s.done ? "✓" : s.icon}</span>
+            <span className="dash-step-body">
+              <b className="dash-step-label">{s.label}</b>
+              <i className="dash-step-sub">{i === currentIdx ? "进行中 · " : ""}{s.sub}</i>
+            </span>
+            {i < steps.length - 1 && <span className="dash-step-link" aria-hidden="true" />}
+          </Link>
+        ))}
+      </nav>
 
       {/* ===== 快捷入口 ===== */}
       {QUICK_GROUPS.map((g) => (

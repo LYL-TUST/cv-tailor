@@ -4,11 +4,11 @@ import { NavLink, useLocation } from "react-router-dom";
 /**
  * Layout —— 应用壳:左侧分组导航 + 顶栏 + 内容区
  * 参考主流求职工具(Teal / Rezi / Notion 系)的固定侧栏模式。
- * 结构:
- *   工作台(置顶独立入口,总览/欢迎页)
- *   开始创作 — 导入简历 / 简历编辑器 / 模板主题
- *   打磨优化 — JD 诊断 / 模拟面试(导出已内嵌编辑器顶栏)
- *   账户     — 个人中心 / 数据看板(本地隐私)
+ * 结构(按用户旅程编排:做事 → 磨 → 看):
+ *   工作台(置顶独立入口,总览/旅程进度)
+ *   创作   — 导入简历 / 简历编辑器 / 模板主题
+ *   对标 JD — JD 诊断 / 模拟面试(围绕目标岗位打磨)
+ *   复盘   — 个人中心(能力画像+数据看板并入,数据备份/云同步)
  * 移动端:侧栏收起为抽屉,由顶栏汉堡按钮唤出。
  */
 
@@ -18,7 +18,7 @@ const NAV_GROUPS = [
     items: [{ to: "/dashboard", icon: "🏠", label: "工作台" }],
   },
   {
-    label: "开始创作",
+    label: "创作",
     items: [
       { to: "/import", icon: "📥", label: "导入简历" },
       { to: "/editor", icon: "✏️", label: "简历编辑器" },
@@ -26,17 +26,16 @@ const NAV_GROUPS = [
     ],
   },
   {
-    label: "打磨优化",
+    label: "对标 JD",
     items: [
       { to: "/ats", icon: "🎯", label: "JD 诊断" },
       { to: "/interview", icon: "🎤", label: "模拟面试" },
     ],
   },
   {
-    label: "账户",
+    label: "复盘",
     items: [
       { to: "/me", icon: "👤", label: "个人中心" },
-      { to: "/analytics", icon: "📊", label: "数据看板" },
     ],
   },
 ];

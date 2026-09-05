@@ -6,6 +6,7 @@ import { getEvents, exportEvents, clearEvents, getDeviceInfo } from "../utils/an
  * Analytics —— 本地隐私数据看板
  * 只展示本机浏览器里累积的匿名事件（无账号、无云端），
  * 是产品"最小埋点 → 本地聚合 → 迭代决策"闭环的演示入口。
+ * AnalyticsContent 供独立页与「能力画像」面板嵌入共用;路由 /analytics 已重定向到 /me/radar。
  */
 
 const FEATURE_LABEL = { summary: "个人简介", bullets: "经历要点", star: "STAR 结构化" };
@@ -68,7 +69,8 @@ function FunnelRow({ label, count, base, overall, suffix }) {
   );
 }
 
-export default function Analytics() {
+/** 看板主体(不含页头)—— 独立页与能力画像面板共用 */
+export function AnalyticsContent() {
   const [version, setVersion] = useState(0);
   const events = useMemo(() => {
     const list = getEvents().slice().sort((a, b) => b.t - a.t);
@@ -142,14 +144,7 @@ export default function Analytics() {
   const genBase = stats.genClick; // 漏斗锚点：以"进入编辑器"为整体基数
 
   return (
-    <section>
-      <PageHead
-        kicker="账户"
-        title="数据看板"
-        icon="📊"
-        sub="所有埋点仅保存在当前浏览器中：无账号、无云端上报、不采集个人信息。本页演示「埋点 → 漏斗 → 决策」的数据闭环。"
-      />
-
+    <>
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "24px" }}>
         <button className="btn-primary" onClick={handleExport}>导出事件 JSON</button>
         <button className="btn-ghost" onClick={handleClear}>清空本地数据</button>
@@ -285,6 +280,21 @@ export default function Analytics() {
         说明：事件命名规范与统计口径详见仓库 docs/PRD_AI_Resume_Builder.md「埋点事件表」。该看板服务于产品演示与迭代复盘；
         若未来接入可选云同步/账号体系，同一套事件可无缝切换到服务端分析。
       </p>
+    </>
+  );
+}
+
+/** 独立页包装(当前路由已重定向到 /me/radar,保留以便需要时恢复独立入口) */
+export default function Analytics() {
+  return (
+    <section>
+      <PageHead
+        kicker="复盘"
+        title="数据看板"
+        icon="📊"
+        sub="所有埋点仅保存在当前浏览器中：无账号、无云端上报、不采集个人信息。本页演示「埋点 → 漏斗 → 决策」的数据闭环。"
+      />
+      <AnalyticsContent />
     </section>
   );
 }

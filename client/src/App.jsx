@@ -15,7 +15,6 @@ import MeRadar from "./pages/me/MeRadar";
 import MeFavorites from "./pages/me/MeFavorites";
 import MeBackup from "./pages/me/MeBackup";
 import MeSync from "./pages/me/MeSync";
-import Analytics from "./pages/Analytics";
 import { track } from "./utils/analytics";
 
 /** 路由级页面访问埋点：page_view { page, referrer } */
@@ -51,7 +50,8 @@ export default function App() {
           <Route path="backup" element={<MeBackup />} />
           <Route path="sync" element={<MeSync />} />
         </Route>
-        <Route path="/analytics" element={<Analytics />} />
+        {/* 数据看板已并入能力画像面板(默认收起);旧入口重定向,兼容外链/收藏 */}
+        <Route path="/analytics" element={<Navigate to="/me/radar" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>

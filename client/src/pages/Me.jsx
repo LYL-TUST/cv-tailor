@@ -15,21 +15,37 @@ import PageHead from "../components/PageHead";
  * 隐私优先:所有数据只存本机;账号体系(可选登录云同步)只用于跨设备恢复。
  */
 
-const TABS = [
-  { to: "/me/resumes", label: "📄 我的简历" },
-  { to: "/me/ats", label: "🎯 JD 匹配历史" },
-  { to: "/me/interviews", label: "🎤 面试记录" },
-  { to: "/me/radar", label: "📈 能力画像" },
-  { to: "/me/favorites", label: "⭐ 收藏夹" },
-  { to: "/me/backup", label: "🔐 数据备份" },
-  { to: "/me/sync", label: "☁️ 云同步" },
+// 板块按「资料 / 记录 / 数据」三簇编排,降低 7 个平铺 tab 的认知负担
+const TAB_GROUPS = [
+  {
+    label: "资料",
+    items: [
+      { to: "/me/resumes", label: "📄 我的简历" },
+      { to: "/me/favorites", label: "⭐ 收藏夹" },
+    ],
+  },
+  {
+    label: "记录",
+    items: [
+      { to: "/me/ats", label: "🎯 JD 匹配历史" },
+      { to: "/me/interviews", label: "🎤 面试记录" },
+      { to: "/me/radar", label: "📈 能力画像" },
+    ],
+  },
+  {
+    label: "数据",
+    items: [
+      { to: "/me/backup", label: "🔐 数据备份" },
+      { to: "/me/sync", label: "☁️ 云同步" },
+    ],
+  },
 ];
 
 export default function Me() {
   return (
     <section style={{ maxWidth: 1240, margin: "0 auto", padding: "18px 32px 32px" }}>
       <PageHead
-        kicker="账户"
+        kicker="复盘"
         title="个人中心"
         icon="👤"
         sub="无需登录 —— 你的简历与练习记录都保存在这台设备上，只有你能看到。"
@@ -40,14 +56,19 @@ export default function Me() {
       </div>
 
       <nav className="me-tabs" aria-label="个人中心板块">
-        {TABS.map((t) => (
-          <NavLink
-            key={t.to}
-            to={t.to}
-            className={({ isActive }) => `me-tab${isActive ? " active" : ""}`}
-          >
-            {t.label}
-          </NavLink>
+        {TAB_GROUPS.map((g) => (
+          <div key={g.label} className="me-tab-cluster">
+            <span className="me-tab-cluster-label" aria-hidden="true">{g.label}</span>
+            {g.items.map((t) => (
+              <NavLink
+                key={t.to}
+                to={t.to}
+                className={({ isActive }) => `me-tab${isActive ? " active" : ""}`}
+              >
+                {t.label}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 

@@ -1,7 +1,7 @@
 import PageHead from "../components/PageHead";
 import ResumePicker from "../components/ResumePicker";
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 import * as api from "../utils/api";
 import { track } from "../utils/analytics";
 import { saveInterviewSession } from "../utils/historyStore";
@@ -1078,6 +1078,11 @@ export default function Interview() {
               value={jd}
               onChange={(e) => setJd(e.target.value)}
             />
+            {jd.trim() && (
+              <Link to="/ats" className="iv-jd-backlink" title="JD 诊断页会自动恢复上次的分析现场">
+                🎯 回看这份 JD 的诊断结果 →
+              </Link>
+            )}
           </div>
         )}
 

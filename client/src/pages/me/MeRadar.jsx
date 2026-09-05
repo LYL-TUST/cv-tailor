@@ -7,6 +7,8 @@ import {
 } from "../../utils/radarStats";
 import { track } from "../../utils/analytics";
 import { SectionTitle, ghostBtn, chipStyle, EmptyState } from "./meUi";
+import CollapsibleSection from "../../components/CollapsibleSection";
+import { AnalyticsContent } from "../Analytics";
 
 /**
  * 能力雷达画像 —— 跨场次聚合(category × difficulty × score,纯本地计算)
@@ -171,6 +173,18 @@ export default function MeRadar() {
         📊 画像由本机全部面试记录聚合而来(含未保存场次不会计入,仅统计「保存到个人中心」的场次);「⚠️ n」为该维度弱题数(低分 / 超时 / 未回应追问)。
         <button style={{ ...ghostBtn, marginLeft: 8 }} onClick={() => navigate("/me/interviews")}>查看面试记录 →</button>
       </p>
+
+      {/* 产品数据看板(本机埋点):原独立「数据看板」页并入此处,默认收起 */}
+      <div style={{ marginTop: 16 }}>
+        <CollapsibleSection
+          icon="📊"
+          title="产品数据看板(本机埋点)"
+          meta="漏斗 · 转化 · 校验"
+          defaultOpen={false}
+        >
+          <AnalyticsContent />
+        </CollapsibleSection>
+      </div>
     </div>
   );
 }
