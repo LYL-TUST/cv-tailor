@@ -11,6 +11,7 @@ import Me from "./pages/Me";
 import MeResumes from "./pages/me/MeResumes";
 import MeAtsHistory from "./pages/me/MeAtsHistory";
 import MeInterviewHistory from "./pages/me/MeInterviewHistory";
+import MeRadar from "./pages/me/MeRadar";
 import MeFavorites from "./pages/me/MeFavorites";
 import MeBackup from "./pages/me/MeBackup";
 import MeSync from "./pages/me/MeSync";
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="resumes" element={<MeResumes />} />
           <Route path="ats" element={<MeAtsHistory />} />
           <Route path="interviews" element={<MeInterviewHistory />} />
+          <Route path="radar" element={<MeRadar />} />
           <Route path="favorites" element={<MeFavorites />} />
           <Route path="backup" element={<MeBackup />} />
           <Route path="sync" element={<MeSync />} />

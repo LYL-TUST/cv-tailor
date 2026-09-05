@@ -43,7 +43,18 @@ router.post("/generate", async (req, res) => {
             interviewType = "mixed",
             count = 5,
             difficulty: difficultyRaw,
+            focusCategories: focusRaw,
         } = req.body;
+
+        // 弱项针对性再练(能力画像 → 定向出题):只保留合法维度名,最多 5 个
+        const focusCategories = Array.isArray(focusRaw)
+            ? [...new Set(focusRaw.map((c) => String(c).trim()).filter(Boolean).map((c) => c.slice(0, 24)))].slice(0, 5)
+            : [];
+        // 深挖模式题源是简历经历,维度由简历内容决定,定向规则不适用
+        const focusRule =
+            focusCategories.length > 0 && interviewType !== "resume-drill"
+                ? `针对性补练要求:本次是弱项针对性练习,所有题目必须集中考察以下能力维度:${focusCategories.join("、")};每题的 category 字段必须取自这些维度(措辞可细分,但语义不得超出该范围)。`
+                : "";
 
         // 难度档位(默认循序渐进):easy | medium | hard | progressive(旧客户端不带则渐进)
         const difficulty = ["easy", "medium", "hard", "progressive"].includes(difficultyRaw)
@@ -123,7 +134,7 @@ ${brief}
 
 ${diffRule}
 难度语义:简单=常见单一情境;中等=含取舍或冲突;困难=多角色矛盾或时间压力,追问更深。
-
+${focusRule ? focusRule + "\n" : ""}
 ${jd ? `职位描述：${jd}` : ""}
 ${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
 
@@ -161,7 +172,7 @@ ${ctxRules}
 
 ${diffRule}
 难度语义:简单=基础概念与常见场景;中等=需要深入分析;困难=复杂系统/边界情形/综合运用。
-
+${focusRule ? focusRule + "\n" : ""}
 ${jd ? `职位描述：${jd}` : ""}
 ${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
 
@@ -200,7 +211,7 @@ ${ctxRules}
 
 ${diffRule}
 难度语义:行为题按情境复杂度,技术题按知识深度,两种题型各自的难度都要符合档位。
-
+${focusRule ? focusRule + "\n" : ""}
 ${jd ? `职位描述：${jd}` : ""}
 ${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
 
@@ -308,6 +319,71 @@ ${contextBlock ? `【面试背景】\n${contextBlock}\n` : ""}
     } catch (err) {
         console.error("Follow-up generation error:", err);
         res.status(500).json({ error: "追问生成失败" });
+    }
+});
+
+// Generate whole-session review report (基于本场逐题记录的跨题归纳;追问命中率等统计由前端本地计算,不进 LLM)
+router.post("/session-report", async (req, res) => {
+    try {
+        const { jobTitle = "", records } = req.body;
+
+        if (!Array.isArray(records) || records.length === 0) {
+            return res.status(400).json({ error: "请提供本场逐题记录" });
+        }
+
+        // 精简记录(控 token):题干/回答截断,追问只留角度与是否回应
+        const slim = records.slice(0, 10).map((r, i) => ({
+            no: i + 1,
+            question: clip(r.question, 80),
+            category: r.category || "",
+            type: r.type || "",
+            difficulty: r.difficulty || "",
+            score: typeof r.score === "number" ? r.score : null,
+            timeUp: Boolean(r.timeUp),
+            userAnswer: clip(r.userAnswer, 150),
+            followUp: r.followUp && r.followUp.question
+                ? { angle: r.followUp.angle || "", responded: Boolean((r.followUp.answer || "").trim()) }
+                : null,
+        }));
+
+        const prompt = `
+你是一位资深面试教练。候选人刚完成一场${jobTitle ? `「${jobTitle}」岗位的` : ""}模拟面试,以下是逐题记录(含得分、是否超时、是否被面试官追问及是否回应)。
+
+逐题记录(JSON):
+${JSON.stringify(slim)}
+
+请生成整场复盘,要求:
+- 一切基于记录归纳,不虚构未提及的表现;对低分题/超时/未回应追问如实点出
+- commonWeaknesses:跨题共性弱点(如多处缺量化结果、追问应对薄弱、STAR 结构不完整、技术细节含糊),2-4 条,每条一句话并点出对应题号
+- practiceAdvice:下一步训练建议,具体可执行,2-4 条
+- highlights:整场亮点,1-3 条(没有明显亮点可返回空数组)
+- overallSummary:总评,2-3 句,先肯定后指路,结合平均分水平
+
+以 JSON 输出:
+{
+  "overallSummary": "总评(中文)",
+  "highlights": ["亮点 1"],
+  "commonWeaknesses": ["共性弱点 1(含题号)"],
+  "practiceAdvice": ["训练建议 1"]
+}
+`;
+
+        const response = await openai.chat.completions.create({
+            model: MODEL_NAME,
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" },
+        });
+
+        const data = JSON.parse(response.choices[0].message.content);
+        res.json({
+            overallSummary: data.overallSummary || "",
+            highlights: Array.isArray(data.highlights) ? data.highlights : [],
+            commonWeaknesses: Array.isArray(data.commonWeaknesses) ? data.commonWeaknesses : [],
+            practiceAdvice: Array.isArray(data.practiceAdvice) ? data.practiceAdvice : [],
+        });
+    } catch (err) {
+        console.error("Session report error:", err);
+        res.status(500).json({ error: "复盘报告生成失败" });
     }
 });
 

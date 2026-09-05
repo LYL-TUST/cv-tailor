@@ -42,6 +42,26 @@ export default function MeInterviewHistory() {
 
               {expanded === s.id && (
                 <div style={{ marginTop: 12, borderTop: "1px dashed #e2e8f0", paddingTop: 12, display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {s.report?.stats && (
+                    <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "8px", padding: "10px 12px" }}>
+                      <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", fontSize: "12px", color: "#1e40af" }}>
+                        <span><strong>{s.report.stats.avg ?? "—"}</strong> 平均分</span>
+                        <span><strong>{s.report.stats.timedOut}</strong> 超时</span>
+                        <span><strong>{s.report.stats.followUpCount > 0 ? `${s.report.stats.followUpResponded}/${s.report.stats.followUpCount}` : "—"}</strong> 追问回应</span>
+                        <span><strong>{s.report.stats.weakQuestions?.length ?? 0}</strong> 建议再练</span>
+                      </div>
+                      {(s.report.stats.angleCounts || []).length > 0 && (
+                        <p style={{ fontSize: "12px", margin: "6px 0 0", color: "#5b21b6" }}>
+                          🗣 高频追问角度:{s.report.stats.angleCounts.map((a) => `${a.angle}×${a.count}`).join("、")}
+                        </p>
+                      )}
+                      {s.report.llm?.commonWeaknesses?.length > 0 && (
+                        <p style={{ fontSize: "12px", margin: "6px 0 0", color: "#7c2d12" }}>
+                          ⚠️ 共性弱点:{s.report.llm.commonWeaknesses.join("；")}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {s.records?.map((q, qi) => (
                     <div key={qi} style={{ background: "#f8fafc", borderRadius: "8px", padding: "10px 12px" }}>
                       <div style={{ fontSize: "14px", fontWeight: "600" }}>

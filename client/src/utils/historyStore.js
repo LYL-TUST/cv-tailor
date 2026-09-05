@@ -89,7 +89,7 @@ export function clearAtsRecords() {
 /** 保存一次面试会话（逐题作答 + AI 反馈一起入库）
  *  context: { mode, jdTitle, jdPreview, resumeId, resumeName } 面试官资料包快照
  */
-export function saveInterviewSession({ jobTitle, interviewType, records, context }) {
+export function saveInterviewSession({ jobTitle, interviewType, records, context, report }) {
   const list = readList(INTERVIEW_KEY);
   const ctx = context || {};
   const session = {
@@ -104,9 +104,12 @@ export function saveInterviewSession({ jobTitle, interviewType, records, context
     resumeName: ctx.resumeName || "",
     questionCount: records?.length || 0,
     avgScore: computeAvgScore(records),
+    // 整场复盘快照(stats=本地统计含追问命中率/角度分布,llm=AI 归纳;未生成时为 null,旧记录兼容)
+    report: report && report.stats ? { stats: report.stats, llm: report.llm || null } : null,
     records: (records || []).map((r) => ({
       type: r.type || "",
       category: r.category || "",
+      difficulty: r.difficulty || "",
       question: r.question || "",
       userAnswer: r.userAnswer || "",
       score: r.score ?? null,

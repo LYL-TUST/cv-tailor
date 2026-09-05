@@ -190,6 +190,9 @@
 | `interview_timer_expire` | 每题限时到（P2） | `limit` | 限时模式开启后的超时率（压力与完成度的平衡） |
 | `interview_followup_generate` | 面试官追问生成成功（P2） | `ctx` | 追问功能触达率（真人面试循环渗透） |
 | `interview_followup_answered` | 用户回应追问并评估（P2） | 无 | 追问回应率（vs skipped），衡量"被追问"训练价值 |
+| `interview_report_generate` | 整场复盘生成（P2.5） | `questions`, `avg` | 复盘功能使用率（练习→复盘转化） |
+| `interview_report_retrain` | 复盘弱题一键送收藏（P2.5） | `added`, `dup` | 复盘→再练闭环转化（低分/超时/未回应追问题的回流） |
+| `interview_weak_drill` | 能力画像弱项一键针对性再练（P3） | `categories`, `source: radar` | 画像→行动闭环转化（弱项维度是否被用户付诸练习）；`interview_generate` 同步携带 `focus`（定向维度数） |
 | `interview_followup_skipped` | 用户跳过追问直接评估（P2） | 无 | 跳过率（追问是否打断学习节奏） |
 | `backup_export` / `backup_import` | 加密/明文备份操作 | `encrypted` | 备份功能使用率（支撑"要不要做云同步"决策） |
 

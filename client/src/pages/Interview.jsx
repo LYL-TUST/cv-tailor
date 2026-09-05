@@ -57,6 +57,52 @@ const DIFF_ORDER = { easy: 0, medium: 1, hard: 2 };
 const TIME_LIMIT_OPTIONS = [0, 60, 90, 120];
 const TIME_LIMIT_LABEL = (s) => (s === 0 ? '不限时' : `${s} 秒 / 题`);
 
+const WEAK_SCORE = 6; // 低于此分视为弱题(整场复盘「建议再练」)
+
+/**
+ * 整场复盘的本地统计(纯前端算术;追问命中率/角度分布是核心增量,LLM 只负责跨题归纳)
+ * 判定弱题:低分 / 超时 / 被追问但未回应 —— 三者都是「经不起追问」的信号
+ */
+function buildSessionStats(records) {
+  const list = Array.isArray(records) ? records : [];
+  const scored = list.filter((r) => typeof r.score === 'number');
+  const avg = scored.length
+    ? Math.round((scored.reduce((s, r) => s + r.score, 0) / scored.length) * 10) / 10
+    : null;
+  const followUps = list.filter((r) => r.followUp && r.followUp.question);
+  const responded = followUps.filter((r) => (r.followUp.answer || '').trim());
+
+  // 追问角度分布:面试官最常从哪些角度"问穿"你
+  const angleMap = new Map();
+  followUps.forEach((r) => {
+    const key = r.followUp.angle || '其他';
+    angleMap.set(key, (angleMap.get(key) || 0) + 1);
+  });
+  const angleCounts = [...angleMap.entries()]
+    .map(([angle, count]) => ({ angle, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const perQuestion = list.map((r, i) => ({
+    no: i + 1,
+    score: typeof r.score === 'number' ? r.score : null,
+    category: r.category || '',
+    flagged: (typeof r.score === 'number' && r.score < WEAK_SCORE)
+      || Boolean(r.timeUp)
+      || Boolean(r.followUp && r.followUp.question && !(r.followUp.answer || '').trim()),
+  }));
+
+  return {
+    answered: list.length,
+    avg,
+    timedOut: list.filter((r) => r.timeUp).length,
+    followUpCount: followUps.length,
+    followUpResponded: responded.length,
+    angleCounts,
+    perQuestion,
+    weakQuestions: list.filter((_, i) => perQuestion[i].flagged),
+  };
+}
+
 /** 难度归一化(模型可能返回 Easy/Medium 大小写不一) */
 const normDiff = (d) => String(d || '').toLowerCase();
 
@@ -100,6 +146,9 @@ export default function Interview() {
   const ctxRef = useRef(null); // 出题时上下文快照，评估环节继续使用
   const [restoredTip, setRestoredTip] = useState(false); // 恢复草稿后的一次性提示
 
+  // ===== 能力画像 → 弱项针对性再练:非空时 /generate 只围绕这些维度定向出题 =====
+  const [focusCategories, setFocusCategories] = useState(null); // string[] | null
+
   // ===== P2 真人面试循环:限时 / TTS 读题 / 追问 =====
   const [timeLimitSec, setTimeLimitSec] = useState(0); // 每题限时(0=不限时,默认关)
   const [timeLeft, setTimeLeft] = useState(null); // 当前题剩余秒数(null=未启动)
@@ -109,6 +158,11 @@ export default function Interview() {
   const [followUpAnswer, setFollowUpAnswer] = useState(""); // 追问补答
   const [followUpLoading, setFollowUpLoading] = useState(false); // 追问生成中
   const timeUpRef = useRef(false); // 评估落库时读(避免闭包陈旧)
+
+  // ===== 整场复盘报告(本地统计 + LLM 跨题归纳) =====
+  const [report, setReport] = useState(null); // { stats, llm }
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState(null);
 
   /** 面试官语音(P2):读题/念追问,浏览器本地合成 */
   const tts = useTTS({ lang: "zh-CN" });
@@ -250,7 +304,15 @@ export default function Interview() {
       return;
     }
 
-    // 1) 从 ATS 结果页跳转带入：明确的新意图 → 预填并丢弃旧草稿
+    // 1) 从个人中心「能力画像 · 针对性再练」进入:携带弱项维度 → 清旧草稿,定向出题
+    if (st?.weakDrill && Array.isArray(st.weakDrill.categories) && st.weakDrill.categories.length > 0) {
+      setFocusCategories(st.weakDrill.categories.filter((c) => typeof c === "string" && c.trim()).slice(0, 5));
+      if (st.weakDrill.jobTitle) setJobTitle(st.weakDrill.jobTitle);
+      clearDraft("interview");
+      return;
+    }
+
+    // 2) 从 ATS 结果页跳转带入：明确的新意图 → 预填并丢弃旧草稿
     if (st && (st.jd || st.resumeId)) {
       if (st.jd) {
         setJd(st.jd);
@@ -276,6 +338,7 @@ export default function Interview() {
       if (draft.interviewType) setInterviewType(draft.interviewType);
       if (typeof draft.questionCount === "number") setQuestionCount(draft.questionCount);
       if (draft.difficultyMode) setDifficultyMode(draft.difficultyMode);
+      if (Array.isArray(draft.focusCategories) && draft.focusCategories.length > 0) setFocusCategories(draft.focusCategories);
       if (TIME_LIMIT_OPTIONS.includes(draft.timeLimitSec)) setTimeLimitSec(draft.timeLimitSec);
       setRevealedRef(false);
       const target = findVersion(versions, draft.resumeId);
@@ -295,6 +358,7 @@ export default function Interview() {
       if (typeof draft.followUpAnswer === "string") setFollowUpAnswer(draft.followUpAnswer);
       if (draft.evaluation) setEvaluation(draft.evaluation);
       if (draft.sessionRecords) setSessionRecords(draft.sessionRecords);
+      if (draft.report && draft.report.stats) setReport(draft.report);
       if (draft.sessionSaved) setSessionSaved(true);
       if (draft.ctx) {
         ctxRef.current = draft.ctx;
@@ -331,6 +395,7 @@ export default function Interview() {
         interviewType,
         questionCount,
         difficultyMode,
+        focusCategories: focusCategories || [],
         timeLimitSec,
         questions,
         currentQuestionIndex,
@@ -341,12 +406,13 @@ export default function Interview() {
         evaluation,
         sessionRecords,
         sessionSaved,
+        report,
         ctx: ctxRef.current || null,
       });
     }, 800);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobTitle, withJd, jd, withResume, interviewType, questionCount, difficultyMode, timeLimitSec, resumeVersion, questions, currentQuestionIndex, userAnswer, firstAnswerSubmitted, followUp, followUpAnswer, evaluation, sessionRecords, sessionSaved]);
+  }, [jobTitle, withJd, jd, withResume, interviewType, questionCount, difficultyMode, focusCategories, timeLimitSec, resumeVersion, questions, currentQuestionIndex, userAnswer, firstAnswerSubmitted, followUp, followUpAnswer, evaluation, sessionRecords, sessionSaved, report]);
 
   /** 结束当前练习并清空本页（已保存到个人中心的记录不受影响） */
   const clearWorkspace = () => {
@@ -368,7 +434,10 @@ export default function Interview() {
     setSessionSaved(false);
     setCtxBadge(null);
     setRestoredTip(false);
+    setFocusCategories(null);
     resetConversationState();
+    setReport(null);
+    setReportError(null);
     ctxRef.current = null;
     const active = getActiveVersion();
     if (active) setResumeVersion(active); else setResumeVersion(null);
@@ -411,6 +480,8 @@ export default function Interview() {
     setCtxBadge(null);
     setRevealedRef(false);
     resetConversationState();
+    setReport(null);
+    setReportError(null);
 
     try {
       const resumeBrief = needResume ? briefOfVersion(resumeVersion) : "";
@@ -422,6 +493,7 @@ export default function Interview() {
         interviewType,
         count: questionCount,
         difficulty: difficultyMode,
+        focusCategories: Array.isArray(focusCategories) ? focusCategories : [],
       });
 
       const qs = Array.isArray(result.questions) ? result.questions : [];
@@ -443,7 +515,7 @@ export default function Interview() {
         hasJd: withJd && jd.trim().length > 0,
         resumeName: needResume ? resumeVersion.name : "",
       });
-      track("interview_generate", { ctx: mode, type: interviewType, count: questionCount, difficulty: difficultyMode });
+      track("interview_generate", { ctx: mode, type: interviewType, count: questionCount, difficulty: difficultyMode, focus: Array.isArray(focusCategories) ? focusCategories.length : 0 });
     } catch (err) {
       setError(`生成面试题失败: ${err.message}`);
     } finally {
@@ -542,6 +614,7 @@ export default function Interview() {
         return [...others, {
           type: currentQuestion.type || "",
           category: currentQuestion.category || "",
+          difficulty: normDiff(currentQuestion.difficulty),
           question: currentQuestion.question || "",
           userAnswer,
           score: result.score ?? null,
@@ -586,6 +659,7 @@ export default function Interview() {
         resumeName: ctx.resumeName || "",
       },
       records: sessionRecords,
+      report: report ? { stats: report.stats, llm: report.llm } : null,
     });
     setSessionSaved(true);
     setError(null);
@@ -681,6 +755,60 @@ export default function Interview() {
     if (next) track("interview_reveal_answer", { source: "reveal" });
   };
 
+  /** 整场复盘:本地统计即时呈现,LLM 跨题归纳异步补充(失败不影响统计展示) */
+  const generateReport = async () => {
+    if (sessionRecords.length === 0) {
+      setError("还没有已评估的回答，请先完成至少一题再生成复盘");
+      return;
+    }
+    const stats = buildSessionStats(sessionRecords);
+    setReport({ stats, llm: null });
+    setReportError(null);
+    setReportLoading(true);
+    track("interview_report_generate", { questions: stats.answered, avg: stats.avg });
+    try {
+      const ctx = ctxRef.current || {};
+      const llm = await api.generateSessionReport({ jobTitle: ctx.jobTitle || jobTitle, records: sessionRecords });
+      setReport({ stats, llm });
+    } catch (err) {
+      setReportError(err.message); // 本地统计仍然有效
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  /** 一键把弱题(低分/超时/未回应追问)送进收藏夹,配合「再练一次」形成训练闭环 */
+  const addWeakToFavorites = () => {
+    if (!report) return;
+    let added = 0;
+    let dup = 0;
+    report.stats.weakQuestions.forEach((r) => {
+      const key = String(r.question || "").trim();
+      if (!key) return;
+      if (favSet.has(key)) { dup += 1; return; }
+      // 优先回查题库原题(带 referenceTips 等完整信息),找不到再用记录字段
+      const q = questions.find((item) => String(item.question || "").trim() === key);
+      const { added: ok } = addFavorite({
+        question: r.question,
+        type: r.type || q?.type || "",
+        category: r.category || q?.category || "",
+        difficulty: r.difficulty || normDiff(q?.difficulty),
+        answerFramework: q?.answerFramework || "",
+        fromExperience: q?.fromExperience || "",
+        drillHint: q?.drillHint || "",
+        referenceTips: q?.referenceTips || null,
+        sourceJobTitle: ctxRef.current?.jobTitle || jobTitle || "",
+      });
+      if (ok) {
+        added += 1;
+        setFavSet((prev) => new Set(prev).add(key));
+      }
+    });
+    track("interview_report_retrain", { added, dup });
+    if (added === 0 && dup > 0) setError("弱题都已在收藏夹里了——去「个人中心 · 收藏夹」再练一次");
+    else if (added > 0) setError(null);
+  };
+
   const currentQuestion = questions[currentQuestionIndex];
   const refTips = currentQuestion?.referenceTips || null;
 
@@ -748,6 +876,14 @@ export default function Interview() {
         <div className="notice notice-ok" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
           <span>🔄 已恢复上次离开时的练习 —— 本页现场会自动保存在本机，随时可以放心切换页面。</span>
           <button className="btn-ghost" style={{ fontSize: '12px', padding: '2px 10px', flexShrink: 0 }} onClick={() => setRestoredTip(false)}>知道了</button>
+        </div>
+      )}
+
+      {/* 针对性练习横幅(能力画像弱项定向):出题只围绕这些维度,可随时取消 */}
+      {focusCategories && focusCategories.length > 0 && (
+        <div className="notice notice-ok" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <span>🎯 <b>针对性练习</b>：本场题目将集中考察「{focusCategories.join("、")}」(来自能力画像的弱项维度)。</span>
+          <button className="btn-ghost" style={{ fontSize: '12px', padding: '2px 10px', flexShrink: 0 }} onClick={() => setFocusCategories(null)}>取消定向</button>
         </div>
       )}
 
@@ -933,10 +1069,99 @@ export default function Interview() {
             <span>
               已答 {sessionRecords.length} 题{sessionSaved && ' · ✅ 已保存到个人中心'}
             </span>
-            <button className="btn-ghost" onClick={saveSession} disabled={sessionRecords.length === 0 || sessionSaved}>
-              💾 保存本次练习
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn-ghost" onClick={generateReport} disabled={sessionRecords.length === 0 || reportLoading}>
+                {reportLoading ? '⏳ 归纳中…' : report ? '🔄 重新复盘' : '📋 整场复盘'}
+              </button>
+              <button className="btn-ghost" onClick={saveSession} disabled={sessionRecords.length === 0 || sessionSaved}>
+                💾 保存本次练习
+              </button>
+            </div>
           </div>
+
+          {/* 整场复盘报告:本地统计(追问命中率/角度分布/得分条形)+ AI 跨题归纳 + 弱题一键收藏 */}
+          {report && (
+            <div className="iv-report">
+              <div className="iv-report-head">
+                <span className="iv-report-cap">📋 整场复盘</span>
+                <span className="iv-report-sub">{ctxRef.current?.jobTitle || jobTitle || '本次练习'} · {report.stats.answered} 题</span>
+              </div>
+
+              <div className="iv-report-stats">
+                <div className="iv-stat"><b>{report.stats.avg ?? '—'}</b><span>平均分</span></div>
+                <div className={`iv-stat${report.stats.timedOut > 0 ? ' warn' : ''}`}><b>{report.stats.timedOut}</b><span>超时</span></div>
+                <div className="iv-stat"><b>{report.stats.followUpCount > 0 ? `${report.stats.followUpResponded}/${report.stats.followUpCount}` : '—'}</b><span>追问回应</span></div>
+                <div className={`iv-stat${report.stats.weakQuestions.length > 0 ? ' warn' : ''}`}><b>{report.stats.weakQuestions.length}</b><span>建议再练</span></div>
+              </div>
+
+              {report.stats.angleCounts.length > 0 && (
+                <div className="iv-report-sec">
+                  <strong>🗣 追问角度分布</strong>
+                  <span className="iv-report-hint">被追问最多的角度 = 你最容易「答虚」的地方</span>
+                  <div className="iv-report-angles">
+                    {report.stats.angleCounts.map((a) => (
+                      <span key={a.angle} className="iv-angle-chip">{a.angle} × {a.count}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="iv-report-sec">
+                <strong>📊 逐题得分</strong>
+                <div className="iv-report-bars">
+                  {report.stats.perQuestion.map((p) => (
+                    <div key={p.no} className="iv-bar-row" title={p.flagged ? '低分 / 超时 / 未回应追问,建议再练' : p.category}>
+                      <span className="iv-bar-no">Q{p.no}</span>
+                      <div className="iv-bar-track">
+                        <div
+                          className={`iv-bar-fill${p.score != null && p.score < WEAK_SCORE ? ' weak' : ''}`}
+                          style={{ width: p.score != null ? `${p.score * 10}%` : '0%' }}
+                        />
+                      </div>
+                      <span className="iv-bar-score">{p.score ?? '—'}{p.flagged ? ' ⚠️' : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {reportLoading && <p className="iv-report-llm-loading">⏳ 面试教练正在归纳整场表现…</p>}
+              {reportError && (
+                <p className="iv-report-llm-err">⚠️ AI 总评生成失败:{reportError} —— 下方本地统计仍然有效。</p>
+              )}
+              {report.llm && (
+                <div className="iv-report-llm">
+                  {report.llm.overallSummary && <p className="iv-report-sum">{report.llm.overallSummary}</p>}
+                  {report.llm.highlights?.length > 0 && (
+                    <div className="iv-report-sec">
+                      <strong>✅ 整场亮点</strong>
+                      <ul>{report.llm.highlights.map((h, i) => <li key={i}>{h}</li>)}</ul>
+                    </div>
+                  )}
+                  {report.llm.commonWeaknesses?.length > 0 && (
+                    <div className="iv-report-sec">
+                      <strong>⚠️ 跨题共性弱点</strong>
+                      <ul>{report.llm.commonWeaknesses.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                    </div>
+                  )}
+                  {report.llm.practiceAdvice?.length > 0 && (
+                    <div className="iv-report-sec">
+                      <strong>🎯 下一步训练建议</strong>
+                      <ul>{report.llm.practiceAdvice.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {report.stats.weakQuestions.length > 0 && (
+                <div className="iv-report-weak">
+                  <span>🔁 低分 / 超时 / 未回应追问的题,值得再练一遍</span>
+                  <button className="btn-ghost" onClick={addWeakToFavorites}>
+                    ☆ 一键送进收藏夹({report.stats.weakQuestions.length})
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 面试官资料徽标 */}
           {ctxBadge && (

@@ -7,6 +7,7 @@ import PageHead from "../components/PageHead";
  *   /me/resumes    我的简历
  *   /me/ats        JD 匹配历史
  *   /me/interviews 模拟面试记录
+ *   /me/radar      能力雷达画像(category×difficulty×score 聚合 + 弱项针对性再练)
  *   /me/favorites  收藏夹
  *   /me/backup     数据备份与恢复(含危险区)
  *   /me/sync       云同步(可选登录 · 端到端加密)
@@ -18,6 +19,7 @@ const TABS = [
   { to: "/me/resumes", label: "📄 我的简历" },
   { to: "/me/ats", label: "🎯 JD 匹配历史" },
   { to: "/me/interviews", label: "🎤 面试记录" },
+  { to: "/me/radar", label: "📈 能力画像" },
   { to: "/me/favorites", label: "⭐ 收藏夹" },
   { to: "/me/backup", label: "🔐 数据备份" },
   { to: "/me/sync", label: "☁️ 云同步" },

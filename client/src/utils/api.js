@@ -157,17 +157,18 @@ export async function getTemplate(id) {
 /**
  * Generate interview questions
  */
-export async function generateInterviewQuestions({ 
-  jobTitle, 
-  jobDescription, 
+export async function generateInterviewQuestions({
+  jobTitle,
+  jobDescription,
   resumeBrief,
-  interviewType = 'mixed', 
+  interviewType = 'mixed',
   count = 5,
   difficulty = 'progressive',
+  focusCategories = [],
 }) {
   return fetchAPI('/api/interview/generate', {
     method: 'POST',
-    body: JSON.stringify({ jobTitle, jobDescription, resumeBrief, interviewType, count, difficulty }),
+    body: JSON.stringify({ jobTitle, jobDescription, resumeBrief, interviewType, count, difficulty, focusCategories }),
   });
 }
 
@@ -190,6 +191,16 @@ export async function generateFollowUp({ question, userAnswer, questionType = 'b
   return fetchAPI('/api/interview/follow-up', {
     method: 'POST',
     body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief }),
+  });
+}
+
+/**
+ * Generate whole-session review report (整场复盘:LLM 跨题归纳;追问命中率等统计由前端本地计算)
+ */
+export async function generateSessionReport({ jobTitle = '', records = [] }) {
+  return fetchAPI('/api/interview/session-report', {
+    method: 'POST',
+    body: JSON.stringify({ jobTitle, records }),
   });
 }
 
@@ -350,6 +361,7 @@ export default {
   generateInterviewQuestions,
   evaluateAnswer,
   generateFollowUp,
+  generateSessionReport,
   getInterviewTips,
   
   // PDF Export

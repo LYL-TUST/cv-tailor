@@ -29,6 +29,10 @@
  *  - interview_followup_generate 面试官追问生成成功 { ctx }                     (P2 追问)
  *  - interview_followup_answered 用户回应追问并评估 { }                         (P2 追问)
  *  - interview_followup_skipped 用户跳过追问直接评估 { }                        (P2 追问)
+ *  - interview_report_generate 整场复盘生成      { questions, avg }             (P2.5 复盘)
+ *  - interview_report_retrain 复盘弱题一键收藏   { added, dup }                 (P2.5 复盘→再练闭环)
+ *  - interview_weak_drill  能力画像弱项一键针对性再练 { categories, source: radar } (P3 画像→定向再练闭环)
+ *                            (interview_generate 同步增加 focus 属性 = 定向维度数)
  */
 
 const EVENTS_KEY = "arb_analytics_events_v1";
