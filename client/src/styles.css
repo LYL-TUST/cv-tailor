@@ -3382,7 +3382,7 @@ p.editable-field:hover {
 .me-tabs {
   display: flex; flex-wrap: wrap; gap: 4px;
   padding: 5px; background: #f1f5f9; border: 1px solid #e2e8f0;
-  border-radius: 12px; margin: 8px 0 20px; width: fit-content; max-width: 100%;
+  border-radius: 12px; margin: 6px 0 14px; width: fit-content; max-width: 100%;
 }
 .me-tab {
   padding: 7px 14px; font-size: 13px; color: #475569; text-decoration: none;
@@ -3411,27 +3411,54 @@ p.editable-field:hover {
 
 /* ===== 空态卡片(全平台统一, EmptyState 组件使用) ===== */
 .empty-state {
-  text-align: center; padding: 36px 24px;
+  text-align: center; padding: 24px 20px;
   border: 1px dashed #cbd5e1; background: #fff; border-radius: 12px; color: #64748b;
 }
 .empty-state .empty-state-ico {
-  width: 56px; height: 56px; margin: 0 auto 14px;
+  width: 44px; height: 44px; margin: 0 auto 10px;
   border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  font-size: 26px; background: #eff6ff; color: #2563eb;
+  font-size: 21px; background: #eff6ff; color: #2563eb;
 }
 .empty-state .empty-state-title {
-  font-size: 15px; color: #0f172a; font-weight: 600; margin: 0;
+  font-size: 14px; color: #0f172a; font-weight: 600; margin: 0;
 }
 .empty-state .empty-state-desc {
-  margin: 6px 0 0; font-size: 13px; line-height: 1.7;
+  margin: 5px 0 0; font-size: 13px; line-height: 1.65;
 }
-.empty-state .empty-state-cta { margin-top: 14px; }
+.empty-state .empty-state-cta { margin-top: 10px; }
 
 /* ===== 个人中心页脚 ===== */
 .me-footer {
-  margin-top: 36px; padding-top: 16px;
+  margin-top: 22px; padding-top: 12px;
   border-top: 1px solid #e2e8f0;
   text-align: center; font-size: 12px; color: #94a3b8;
+}
+
+/* ===== 收藏夹 · 自建收藏夹 tab 与管理 ===== */
+.me-fav-tabs {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px;
+}
+.me-fav-tab {
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 999px;
+  padding: 5px 12px; font-size: 13px; color: #475569; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.me-fav-tab i {
+  font-style: normal; font-size: 11px; background: #e2e8f0;
+  border-radius: 999px; padding: 0 6px; color: #475569;
+}
+.me-fav-tab:hover { border-color: #94a3b8; color: #0f172a; }
+.me-fav-tab.active { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; font-weight: 600; }
+.me-fav-tab.active i { background: #dbeafe; color: #1e40af; }
+.me-fav-tab-add { border-style: dashed; color: #2563eb; background: none; }
+.me-fav-manage {
+  display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+  margin-bottom: 10px; font-size: 13px; color: #334155;
+}
+.me-fav-move, .iv-fav-folder-select {
+  font-size: 12px; padding: 4px 6px; border: 1px solid #cbd5e1;
+  border-radius: 6px; background: #fff; color: #475569; max-width: 150px;
 }
 
 /* ===== 模拟面试 · 回答-简历矛盾点对照(P4) ===== */

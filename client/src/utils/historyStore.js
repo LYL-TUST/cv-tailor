@@ -16,7 +16,7 @@ import {
   getDraftEnvelope, mergeDraftEnvelope, clearAllDrafts,
 } from "./draftStore";
 import {
-  listFavorites, writeFavorites, clearFavorites, FAVORITES_KEY,
+  listFavorites, listFolders, writeFavorites, writeFoldersRaw, clearAllFavoritesAndFolders, FAVORITES_KEY,
 } from "./favoritesStore";
 
 const ATS_KEY = "ats_history_v1";
@@ -178,6 +178,7 @@ export function exportAllData() {
       ats_history_v1: readList(ATS_KEY),
       interview_history_v1: readList(INTERVIEW_KEY),
       favorites_v1: listFavorites(),
+      favorites_folders_v1: listFolders(),
       draft_ats_v1: getDraftEnvelope("ats"),
       draft_interview_v1: getDraftEnvelope("interview"),
     },
@@ -225,6 +226,13 @@ export function importAllData(payload) {
     d.favorites_v1.forEach((f) => byId.set(f.id, f));
     writeFavorites(Array.from(byId.values()).slice(0, FAVORITES_LIMIT));
   }
+  // 自定义收藏夹:按 id 合并去重(默认收藏夹为隐式,不在表内)
+  if (Array.isArray(d.favorites_folders_v1) && d.favorites_folders_v1.length > 0) {
+    const existing = listFolders();
+    const byId = new Map(existing.map((f) => [f.id, f]));
+    d.favorites_folders_v1.forEach((f) => byId.set(f.id, f));
+    writeFoldersRaw(Array.from(byId.values()));
+  }
 
   // 工作区草稿：按时间"较新覆盖"合并（见 draftStore）
   mergeDraftEnvelope("ats", d.draft_ats_v1);
@@ -240,7 +248,7 @@ export function clearAllLocalData() {
   localStorage.removeItem("resumeTheme");
   localStorage.removeItem(ATS_KEY);
   localStorage.removeItem(INTERVIEW_KEY);
-  clearFavorites();
+  clearAllFavoritesAndFolders();
   clearAllDrafts();
 }
 

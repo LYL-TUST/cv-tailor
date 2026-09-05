@@ -40,16 +40,16 @@ export const chipStyle = (fg, bg) => ({
 /* ===== 面板通用卡片 / 按钮 ===== */
 /* 卡片视觉(背景/边框/圆角/阴影/hover)由 .me-card 类提供,此处只保留
  * 内联 padding 与间距,避免内联样式覆盖 hover 效果 */
-export const cardBase = { padding: "14px 16px", marginBottom: "10px" };
+export const cardBase = { padding: "12px 14px", marginBottom: "8px" };
 export const ghostBtn = { fontSize: "12px", padding: "3px 10px", cursor: "pointer", background: "none", border: "1px solid #cbd5e1", borderRadius: "6px", color: "#475569" };
 export const dangerBtn = { ...ghostBtn, color: "#dc2626", borderColor: "#fca5a5" };
 
 /** 面板内小节标题(首个传 marginTop=0,紧贴 tab 条) */
-export function SectionTitle({ text, badge, marginTop = 20 }) {
+export function SectionTitle({ text, badge, marginTop = 14 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: `${marginTop}px 0 12px` }}>
+    <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: `${marginTop}px 0 10px` }}>
       <span style={{ width: "6px", height: "18px", background: "#2563eb", borderRadius: "3px", display: "inline-block" }} />
-      <h3 style={{ fontSize: "18px", margin: 0 }}>{text}</h3>
+      <h3 style={{ fontSize: "17px", margin: 0 }}>{text}</h3>
       {badge != null && (
         <span style={{ background: "#e2e8f0", color: "#475569", borderRadius: "12px", padding: "1px 10px", fontSize: "13px" }}>
           {badge}

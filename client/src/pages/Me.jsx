@@ -27,7 +27,7 @@ const TABS = [
 
 export default function Me() {
   return (
-    <section style={{ maxWidth: 980, margin: "0 auto", padding: "28px 24px" }}>
+    <section style={{ maxWidth: 980, margin: "0 auto", padding: "18px 24px 32px" }}>
       <PageHead
         kicker="账户"
         title="个人中心"
@@ -35,7 +35,7 @@ export default function Me() {
         sub="无需登录 —— 你的简历与练习记录都保存在这台设备上，只有你能看到。"
       />
 
-      <div style={{ padding: "10px 14px", background: "#ecfdf5", borderRadius: "8px", fontSize: "13px", color: "#065f46", marginBottom: "12px" }}>
+      <div style={{ padding: "8px 12px", background: "#ecfdf5", borderRadius: "8px", fontSize: "13px", color: "#065f46", marginBottom: "10px" }}>
         🔒 隐私说明：数据不上传服务器。本机数据可能因清除浏览器数据而丢失 —— 建议定期在「数据备份」页做加密备份。
       </div>
 

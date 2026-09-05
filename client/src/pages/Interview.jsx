@@ -8,7 +8,7 @@ import { saveInterviewSession } from "../utils/historyStore";
 import { getActiveVersion } from "../utils/resumeStore";
 import { briefOfVersion, isEmptyResumeData } from "../utils/resumeContext";
 import { loadDraft, saveDraft, clearDraft } from "../utils/draftStore";
-import { isFavorite, addFavorite, removeFavorite } from "../utils/favoritesStore";
+import { isFavorite, addFavorite, removeFavorite, listFolderNames, DEFAULT_FOLDER } from "../utils/favoritesStore";
 import { useVoiceInput } from "../utils/useVoiceInput";
 import { useTTS } from "../utils/useTTS";
 
@@ -819,6 +819,9 @@ export default function Interview() {
     setFavSet(s);
   }, [questions]);
 
+  // ===== 收藏目标收藏夹(题卡星标旁选择;"" = 默认收藏夹;弱题一键收藏同用) =====
+  const [favFolder, setFavFolder] = useState("");
+
   /** 收藏/取消收藏当前题目(判重与上限在 favoritesStore 内处理) */
   const toggleFavorite = () => {
     const q = questions[currentQuestionIndex];
@@ -839,10 +842,11 @@ export default function Interview() {
         drillHint: q.drillHint || "",
         referenceTips: q.referenceTips || null,
         sourceJobTitle: ctxRef.current?.jobTitle || jobTitle || "",
+        folder: favFolder,
       });
       if (added) {
         setFavSet((prev) => new Set(prev).add(key));
-        track("interview_favorite_add", {});
+        track("interview_favorite_add", { folder: favFolder || DEFAULT_FOLDER });
       }
     }
   };
@@ -897,6 +901,7 @@ export default function Interview() {
         drillHint: q?.drillHint || "",
         referenceTips: q?.referenceTips || null,
         sourceJobTitle: ctxRef.current?.jobTitle || jobTitle || "",
+        folder: favFolder,
       });
       if (ok) {
         added += 1;
@@ -1355,12 +1360,25 @@ export default function Interview() {
                   {tts.speaking ? '⏹ 停止朗读' : '🔊 面试官读题'}
                 </button>
               )}
+              {!favSet.has(String(currentQuestion.question || '').trim()) && (
+                <select
+                  className="iv-fav-folder-select"
+                  value={favFolder}
+                  onChange={(e) => setFavFolder(e.target.value)}
+                  title="选择收藏目标文件夹(在个人中心可自建收藏夹)"
+                  aria-label="收藏目标文件夹"
+                >
+                  {listFolderNames().map((name) => (
+                    <option key={name} value={name === DEFAULT_FOLDER ? "" : name}>{`📁 ${name}`}</option>
+                  ))}
+                </select>
+              )}
               <button
                 type="button"
                 className={`iv-fav-btn${favSet.has(String(currentQuestion.question || '').trim()) ? ' on' : ''}`}
                 style={{ marginLeft: tts.supported ? '0' : 'auto' }}
                 onClick={toggleFavorite}
-                title={favSet.has(String(currentQuestion.question || '').trim()) ? '取消收藏' : '收藏本题，可在个人中心反复再练'}
+                title={favSet.has(String(currentQuestion.question || '').trim()) ? '取消收藏' : `收藏到「${favFolder || DEFAULT_FOLDER}」，可在个人中心反复再练`}
               >
                 {favSet.has(String(currentQuestion.question || '').trim()) ? '★ 已收藏' : '☆ 收藏本题'}
               </button>
