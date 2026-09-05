@@ -181,7 +181,7 @@
 | `theme_change` | 用户修改主色调/字体 | `kind: accent/font`, `value` | 个性化需求强度（支撑"要不要做更多模板"的决策） |
 | `resume_version_switch` / `resume_version_create` / `resume_version_delete` | 多版本操作 | `action` 等 | 多版本功能使用率（"投多家公司"场景验证） |
 | `ats_history_save` | ATS 结果自动入库 | `score` | 历史/趋势数据有效性 |
-| `interview_generate` | 出题成功 | `ctx`(title/title+jd/title+resume/title+jd+resume/favorite), `type`, `count`, `difficulty` | 面试模块触达与配置分布（验证难度/数量档位是否被使用） |
+| `interview_generate` | 出题成功 | `ctx`(title/title+jd/title+resume/title+jd+resume/favorite), `type`, `count`, `difficulty`, `focus`(定向维度数), `style`(面试官风格档) | 面试模块触达与配置分布（验证难度/数量/风格档位是否被使用） |
 | `interview_history_save` | 面试练习保存 | `questions`, `ctx` | 面试模块完成率 |
 | `interview_reveal_answer` | 展开「参考思路」（先看答案） | `source: reveal` | 验证「先看答案 vs 先答再评」两种学习路径占比，反推参考答案功能价值 |
 | `interview_favorite_add` / `interview_favorite_remove` | 收藏 / 取消收藏题目 | 无 | 收藏夹使用率（收藏→再练是否为高频闭环） |
@@ -193,6 +193,7 @@
 | `interview_report_generate` | 整场复盘生成（P2.5） | `questions`, `avg` | 复盘功能使用率（练习→复盘转化） |
 | `interview_report_retrain` | 复盘弱题一键送收藏（P2.5） | `added`, `dup` | 复盘→再练闭环转化（低分/超时/未回应追问题的回流） |
 | `interview_weak_drill` | 能力画像弱项一键针对性再练（P3） | `categories`, `source: radar` | 画像→行动闭环转化（弱项维度是否被用户付诸练习）；`interview_generate` 同步携带 `focus`（定向维度数） |
+| `interview_consistency_check` | 回答-简历矛盾点对照（P4） | `verdict: consistent/minor/concern`, `items`(疑点数) | 真实性护栏使用率（用户是否主动做回答与简历的一致性核查） |
 | `interview_followup_skipped` | 用户跳过追问直接评估（P2） | 无 | 跳过率（追问是否打断学习节奏） |
 | `backup_export` / `backup_import` | 加密/明文备份操作 | `encrypted` | 备份功能使用率（支撑"要不要做云同步"决策） |
 

@@ -33,6 +33,26 @@ function buildContextRules({ jobDescription, resumeBrief }) {
   return parts.join("\n");
 }
 
+// 面试官风格档位(面试官资料包第四维度):影响语气/提问锋芒/追问方式,不影响评分标准
+const STYLES = {
+  standard: "大厂标准型:提问专业规范、结构清晰,语气客观正式;追问直接但保持礼貌。",
+  friendly: "温和引导型:语气温和、先肯定再引导,追问时给出思考方向提示;压迫感低,适合建立表达信心。",
+  pressure: "压力追问型:持续质疑与深挖,直击含糊表述、快速切换追问角度,模拟高压面试;对事不对人,保持专业。",
+};
+const STYLE_DEFAULT = "standard";
+function styleOf(raw) {
+  return STYLES[raw] ? raw : STYLE_DEFAULT;
+}
+function styleRule(raw, forEvaluate = false) {
+  const key = styleOf(raw);
+  const base = `面试官风格:${STYLES[key]}`;
+  if (forEvaluate) {
+    return `${base}
+重要:风格只影响你的表达语气与提问锋芒,评分标准保持一致——不因温和风格放水,也不因压力风格压分。`;
+  }
+  return base;
+}
+
 // Generate interview questions
 router.post("/generate", async (req, res) => {
     try {
@@ -44,6 +64,7 @@ router.post("/generate", async (req, res) => {
             count = 5,
             difficulty: difficultyRaw,
             focusCategories: focusRaw,
+            style: styleRaw,
         } = req.body;
 
         // 弱项针对性再练(能力画像 → 定向出题):只保留合法维度名,最多 5 个
@@ -72,6 +93,7 @@ router.post("/generate", async (req, res) => {
         ? "整组题目难度从 easy 递进到 hard,并严格按此顺序排列题目"
         : `每题难度均为「${difficulty}」对应档位`
 };各题 difficulty 字段一律小写(easy|medium|hard)。`;
+        const sRule = styleRule(styleRaw);
 
         if (!jobTitle) {
             return res.status(400).json({ error: "请提供目标职位" });
@@ -94,6 +116,7 @@ router.post("/generate", async (req, res) => {
 
 ${diffRule}
 难度语义:简单=浅层澄清;中等=深入细节;困难=挑战性假设与压力情境。
+${sRule}
 
 职位名称:${jobTitle}
 ${jd ? `(该求职者投递了「${jobTitle}」,可适当结合 JD 判断哪些经历最有价值)\n职位描述:${jd}` : ""}
@@ -134,6 +157,7 @@ ${brief}
 
 ${diffRule}
 难度语义:简单=常见单一情境;中等=含取舍或冲突;困难=多角色矛盾或时间压力,追问更深。
+${sRule}
 ${focusRule ? focusRule + "\n" : ""}
 ${jd ? `职位描述：${jd}` : ""}
 ${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
@@ -172,6 +196,7 @@ ${ctxRules}
 
 ${diffRule}
 难度语义:简单=基础概念与常见场景;中等=需要深入分析;困难=复杂系统/边界情形/综合运用。
+${sRule}
 ${focusRule ? focusRule + "\n" : ""}
 ${jd ? `职位描述：${jd}` : ""}
 ${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
@@ -211,6 +236,7 @@ ${ctxRules}
 
 ${diffRule}
 难度语义:行为题按情境复杂度,技术题按知识深度,两种题型各自的难度都要符合档位。
+${sRule}
 ${focusRule ? focusRule + "\n" : ""}
 ${jd ? `职位描述：${jd}` : ""}
 ${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
@@ -269,6 +295,7 @@ router.post("/follow-up", async (req, res) => {
             jobTitle = "",
             jobDescription,
             resumeBrief,
+            style: styleRaw,
         } = req.body;
 
         if (!question || !userAnswer) {
@@ -286,6 +313,7 @@ router.post("/follow-up", async (req, res) => {
 
         const prompt = `
 你是一位专业但严格的面试官，正在做模拟面试。候选人刚刚回答了你的问题，请基于其回答生成 1 条追问。
+${styleRule(styleRaw)}
 
 ${contextBlock ? `【面试背景】\n${contextBlock}\n` : ""}
 【面试题】${question}
@@ -387,6 +415,69 @@ ${JSON.stringify(slim)}
     }
 });
 
+// Answer-vs-resume consistency check (回答-简历矛盾点对照:真实性护栏的结构化升级)
+// 只对照、不虚构;「回答提到但简历没有」是提示核实/补充,不是指控
+router.post("/consistency-check", async (req, res) => {
+    try {
+        const { question = "", userAnswer, resumeBrief, followUpAnswer = "" } = req.body;
+
+        if (!userAnswer || !String(userAnswer).trim()) {
+            return res.status(400).json({ error: "请提供你的回答" });
+        }
+        const brief = clip(resumeBrief, MAX_BRIEF);
+        if (!brief) {
+            return res.status(400).json({ error: "需要简历背景才能对照（请开启「结合我的简历」后重新出题）" });
+        }
+
+        const prompt = `
+你是一位严谨但善意的简历真实性核查员。候选人刚完成一道面试题的回答,请将回答内容与其简历逐点比对,找出两类「矛盾点」与「含糊点」。
+
+【面试题】${question ? clip(question, 200) : "（未提供题干,直接对照回答）"}
+【候选人回答】${clip(userAnswer, 2500)}
+${String(followUpAnswer).trim() ? `【候选人补充回答】${clip(followUpAnswer, 1500)}` : ""}
+【候选人简历摘要】
+${brief}
+
+对照要求:
+- not_in_resume:回答中提到的经历/项目/数据/技能/奖项在简历中完全没有体现(可能只是简历没写全,提醒其核实或日后补充进简历,不是指控造假)
+- unclear:简历声明了相关经历/技能,但回答对关键细节(时间、数据、个人贡献、做法)说不清或含糊其辞(声明含金量存疑)
+- conflict:回答与简历内容明显矛盾(如时间线、数字、角色、公司/项目名不一致)——这是最严重的一类
+- 一切基于两份材料归纳,不虚构、不脑补;若回答与简历完全一致,如实给出一致结论,不要硬找问题
+- advice 给可执行建议:如何在面试中把细节讲清楚,或如何把这段经历补进简历;绝不建议编造
+
+以 JSON 输出:
+{
+  "verdict": "consistent|minor|concern(一致/有小疑点/需要认真对待)",
+  "summary": "一句话总评(中文)",
+  "items": [
+    { "kind": "not_in_resume|unclear|conflict", "point": "矛盾点概述(一句话)", "detail": "具体说明:回答说了什么 vs 简历写了什么(或没写)", "advice": "建议(一句话)" }
+  ]
+}
+`;
+
+        const response = await openai.chat.completions.create({
+            model: MODEL_NAME,
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" },
+        });
+
+        const data = JSON.parse(response.choices[0].message.content);
+        res.json({
+            verdict: ["consistent", "minor", "concern"].includes(data.verdict) ? data.verdict : "minor",
+            summary: data.summary || "",
+            items: (Array.isArray(data.items) ? data.items : []).slice(0, 6).map((it) => ({
+                kind: ["not_in_resume", "unclear", "conflict"].includes(it.kind) ? it.kind : "unclear",
+                point: it.point || "",
+                detail: it.detail || "",
+                advice: it.advice || "",
+            })),
+        });
+    } catch (err) {
+        console.error("Consistency check error:", err);
+        res.status(500).json({ error: "简历对照检查失败" });
+    }
+});
+
 // Evaluate interview answer
 router.post("/evaluate", async (req, res) => {
     try {
@@ -399,6 +490,7 @@ router.post("/evaluate", async (req, res) => {
             resumeBrief,
             followUpQuestion = "",
             followUpAnswer = "",
+            style: styleRaw,
         } = req.body;
 
         if (!question || !userAnswer) {
@@ -427,6 +519,7 @@ ${String(followUpAnswer || "").trim() ? "" : "- 求职者未回应追问：请�
 
         const prompt = `
 你是一位资深面试教练兼该岗位的面试官。请评估以下面试回答，并用中文给出反馈。
+${styleRule(styleRaw, true)}
 
 ${contextBlock ? `【面试背景】\n${contextBlock}\n` : ""}
 【面试题】${question}

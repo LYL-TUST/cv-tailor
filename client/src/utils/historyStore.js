@@ -98,6 +98,8 @@ export function saveInterviewSession({ jobTitle, interviewType, records, context
     jobTitle: jobTitle || "未命名岗位",
     interviewType: interviewType || "mixed",
     mode: ctx.mode || "title",
+    // 面试官风格档位(P4):standard|friendly|pressure(旧记录无此字段)
+    style: ctx.style || "standard",
     jdTitle: ctx.jdTitle || "",
     jdPreview: ctx.jdPreview || "",
     resumeId: ctx.resumeId || "",
@@ -119,6 +121,19 @@ export function saveInterviewSession({ jobTitle, interviewType, records, context
       starCompliance: r.starCompliance,
       authenticityNote: r.authenticityNote || "",
       improvedAnswer: r.improvedAnswer || "",
+      // P4 回答-简历矛盾点对照(按需触发后并入):{ verdict, summary, items[] }
+      consistency: r.consistency && r.consistency.summary !== undefined
+        ? {
+            verdict: r.consistency.verdict || "minor",
+            summary: r.consistency.summary || "",
+            items: (Array.isArray(r.consistency.items) ? r.consistency.items : []).map((it) => ({
+              kind: it.kind || "unclear",
+              point: it.point || "",
+              detail: it.detail || "",
+              advice: it.advice || "",
+            })),
+          }
+        : null,
       // P2 真人面试循环:面试官追问 + 补答 + 是否超时(旧记录无此字段,渲染端判空兼容)
       followUp: r.followUp && r.followUp.question
         ? { question: r.followUp.question || "", angle: r.followUp.angle || "", answer: r.followUp.answer || "" }

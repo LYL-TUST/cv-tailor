@@ -165,10 +165,22 @@ export async function generateInterviewQuestions({
   count = 5,
   difficulty = 'progressive',
   focusCategories = [],
+  style = 'standard',
 }) {
   return fetchAPI('/api/interview/generate', {
     method: 'POST',
-    body: JSON.stringify({ jobTitle, jobDescription, resumeBrief, interviewType, count, difficulty, focusCategories }),
+    body: JSON.stringify({ jobTitle, jobDescription, resumeBrief, interviewType, count, difficulty, focusCategories, style }),
+  });
+}
+
+/**
+ * Answer-vs-resume consistency check (回答-简历矛盾点对照)
+ * 把回答与简历原文逐点比对:回答提到但简历没有 / 简历声明但回答说不清 / 明显矛盾
+ */
+export async function consistencyCheck({ question = '', userAnswer, resumeBrief, followUpAnswer = '' }) {
+  return fetchAPI('/api/interview/consistency-check', {
+    method: 'POST',
+    body: JSON.stringify({ question, userAnswer, resumeBrief, followUpAnswer }),
   });
 }
 
@@ -176,10 +188,10 @@ export async function generateInterviewQuestions({
  * Evaluate interview answer
  * P2 追问：followUpQuestion / followUpAnswer 可选——有追问时评估综合首答与补答
  */
-export async function evaluateAnswer({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '', followUpQuestion = '', followUpAnswer = '' }) {
+export async function evaluateAnswer({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '', followUpQuestion = '', followUpAnswer = '', style = 'standard' }) {
   return fetchAPI('/api/interview/evaluate', {
     method: 'POST',
-    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief, followUpQuestion, followUpAnswer }),
+    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief, followUpQuestion, followUpAnswer, style }),
   });
 }
 
@@ -187,10 +199,10 @@ export async function evaluateAnswer({ question, userAnswer, questionType = 'beh
  * Generate interviewer follow-up question (P2 真人面试循环)
  * 基于候选人对某题的首答，生成 1 条追问
  */
-export async function generateFollowUp({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '' }) {
+export async function generateFollowUp({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '', style = 'standard' }) {
   return fetchAPI('/api/interview/follow-up', {
     method: 'POST',
-    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief }),
+    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief, style }),
   });
 }
 
@@ -362,6 +374,7 @@ export default {
   evaluateAnswer,
   generateFollowUp,
   generateSessionReport,
+  consistencyCheck,
   getInterviewTips,
   
   // PDF Export

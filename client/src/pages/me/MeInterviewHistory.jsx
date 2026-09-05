@@ -2,7 +2,20 @@ import { useState, useEffect } from "react";
 import {
   listInterviewSessions, deleteInterviewSession, clearInterviewSessions,
 } from "../../utils/historyStore";
-import { SectionTitle, cardBase, dangerBtn, fmtDate, scoreColor, interviewModeLabel, EmptyState } from "./meUi";
+import { SectionTitle, cardBase, dangerBtn, fmtDate, scoreColor, interviewModeLabel, chipStyle, EmptyState } from "./meUi";
+
+/** 面试官风格档位 → 展示标签(P4) */
+const STYLE_CHIP = {
+  standard: { label: "🏢 大厂标准", fg: "#1e40af", bg: "#dbeafe" },
+  friendly: { label: "🤝 温和引导", fg: "#15803d", bg: "#dcfce7" },
+  pressure: { label: "🔥 压力追问", fg: "#b91c1c", bg: "#fee2e2" },
+};
+/** 回答-简历对照结论 → 展示(P4) */
+const CONS_LABEL = {
+  consistent: "✅ 简历对照:一致",
+  minor: "🟡 简历对照:小疑点",
+  concern: "🔴 简历对照:需认真对待",
+};
 
 /** 模拟面试记录 —— 场次回看(逐题回答/AI 反馈/真实性核查/参考回答) */
 export default function MeInterviewHistory() {
@@ -31,10 +44,13 @@ export default function MeInterviewHistory() {
                 </span>
                 <div style={{ flex: 1, minWidth: 200 }}>
                   <strong style={{ fontSize: "14px" }}>{s.jobTitle}</strong>
-                  <div style={{ fontSize: "12px", color: "#94a3b8" }}>
-                    {fmtDate(s.ts)} · {s.questionCount} 题
-                    {s.mode && ` · ${interviewModeLabel(s.mode)}`}
-                    {s.resumeName ? ` · 📄 ${s.resumeName}` : ""}
+                  <div style={{ fontSize: "12px", color: "#94a3b8", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span>
+                      {fmtDate(s.ts)} · {s.questionCount} 题
+                      {s.mode && ` · ${interviewModeLabel(s.mode)}`}
+                      {s.resumeName ? ` · 📄 ${s.resumeName}` : ""}
+                    </span>
+                    {s.style && STYLE_CHIP[s.style] && <span style={chipStyle(STYLE_CHIP[s.style].fg, STYLE_CHIP[s.style].bg)}>{STYLE_CHIP[s.style].label}</span>}
                   </div>
                 </div>
                 <span style={{ fontSize: "12px", color: "#2563eb" }}>{expanded === s.id ? "收起 ▲" : "查看详情 ▼"}</span>
@@ -95,6 +111,19 @@ export default function MeInterviewHistory() {
                         <p style={{ fontSize: "12px", margin: "4px 0", color: "#3730a3", background: "#eef2ff", padding: "6px 10px", borderRadius: "6px" }}>
                           🧾 真实性核查：{q.authenticityNote}
                         </p>
+                      )}
+                      {q.consistency && (
+                        <div style={{ fontSize: "12px", margin: "4px 0", background: "#fffbeb", border: "1px solid #fde68a", padding: "6px 10px", borderRadius: "6px" }}>
+                          <strong>{CONS_LABEL[q.consistency.verdict] || CONS_LABEL.minor}</strong>
+                          {q.consistency.summary ? `:${q.consistency.summary}` : ""}
+                          {(q.consistency.items || []).length > 0 && (
+                            <ul style={{ margin: "4px 0 0", paddingLeft: 18, color: "#57534e" }}>
+                              {q.consistency.items.map((it, ii) => (
+                                <li key={ii}>{it.point}{it.advice ? `(${it.advice})` : ""}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
                       )}
                       {q.improvements?.length > 0 && (
                         <p style={{ fontSize: "12px", margin: "4px 0", color: "#7c2d12" }}>💡 待改进：{q.improvements.join("；")}</p>

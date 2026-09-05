@@ -57,6 +57,30 @@ const DIFF_ORDER = { easy: 0, medium: 1, hard: 2 };
 const TIME_LIMIT_OPTIONS = [0, 60, 90, 120];
 const TIME_LIMIT_LABEL = (s) => (s === 0 ? '不限时' : `${s} 秒 / 题`);
 
+/** 面试官风格(面试官资料包第四维度):影响语气/提问锋芒/追问方式,不影响评分标准 */
+const STYLE_OPTIONS = [
+  { value: 'standard', label: '🏢 大厂标准型（专业规范）' },
+  { value: 'friendly', label: '🤝 温和引导型（先肯定再引导）' },
+  { value: 'pressure', label: '🔥 压力追问型（持续深挖质疑）' },
+];
+const STYLE_META = {
+  standard: { label: '大厂标准', fg: '#1e40af', bg: '#dbeafe' },
+  friendly: { label: '温和引导', fg: '#15803d', bg: '#dcfce7' },
+  pressure: { label: '压力追问', fg: '#b91c1c', bg: '#fee2e2' },
+};
+
+/** 回答-简历对照的矛盾点类型 → 展示标签 */
+const CONS_KIND = {
+  not_in_resume: { label: '简历没有', fg: '#b45309', bg: '#fef3c7' },
+  unclear:       { label: '说不清',   fg: '#7c2d12', bg: '#ffedd5' },
+  conflict:      { label: '明显矛盾', fg: '#b91c1c', bg: '#fee2e2' },
+};
+const CONS_VERDICT = {
+  consistent: { icon: '✅', text: '与简历基本一致' },
+  minor:      { icon: '🟡', text: '发现小疑点' },
+  concern:    { icon: '🔴', text: '需要认真对待' },
+};
+
 const WEAK_SCORE = 6; // 低于此分视为弱题(整场复盘「建议再练」)
 
 /**
@@ -132,6 +156,7 @@ export default function Interview() {
   const [interviewType, setInterviewType] = useState("mixed");
   const [questionCount, setQuestionCount] = useState(5);
   const [difficultyMode, setDifficultyMode] = useState("progressive");
+  const [interviewerStyle, setInterviewerStyle] = useState("standard"); // 面试官风格档位
   const [questions, setQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState("");
@@ -163,6 +188,10 @@ export default function Interview() {
   const [report, setReport] = useState(null); // { stats, llm }
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
+
+  // ===== 回答-简历矛盾点对照(真实性护栏结构化升级,按需触发) =====
+  const [consistency, setConsistency] = useState(null); // { verdict, summary, items }
+  const [consistencyLoading, setConsistencyLoading] = useState(false);
 
   /** 面试官语音(P2):读题/念追问,浏览器本地合成 */
   const tts = useTTS({ lang: "zh-CN" });
@@ -338,6 +367,7 @@ export default function Interview() {
       if (draft.interviewType) setInterviewType(draft.interviewType);
       if (typeof draft.questionCount === "number") setQuestionCount(draft.questionCount);
       if (draft.difficultyMode) setDifficultyMode(draft.difficultyMode);
+      if (draft.interviewerStyle && STYLE_META[draft.interviewerStyle]) setInterviewerStyle(draft.interviewerStyle);
       if (Array.isArray(draft.focusCategories) && draft.focusCategories.length > 0) setFocusCategories(draft.focusCategories);
       if (TIME_LIMIT_OPTIONS.includes(draft.timeLimitSec)) setTimeLimitSec(draft.timeLimitSec);
       setRevealedRef(false);
@@ -395,6 +425,7 @@ export default function Interview() {
         interviewType,
         questionCount,
         difficultyMode,
+        interviewerStyle,
         focusCategories: focusCategories || [],
         timeLimitSec,
         questions,
@@ -412,7 +443,7 @@ export default function Interview() {
     }, 800);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobTitle, withJd, jd, withResume, interviewType, questionCount, difficultyMode, focusCategories, timeLimitSec, resumeVersion, questions, currentQuestionIndex, userAnswer, firstAnswerSubmitted, followUp, followUpAnswer, evaluation, sessionRecords, sessionSaved, report]);
+  }, [jobTitle, withJd, jd, withResume, interviewType, questionCount, difficultyMode, interviewerStyle, focusCategories, timeLimitSec, resumeVersion, questions, currentQuestionIndex, userAnswer, firstAnswerSubmitted, followUp, followUpAnswer, evaluation, sessionRecords, sessionSaved, report]);
 
   /** 结束当前练习并清空本页（已保存到个人中心的记录不受影响） */
   const clearWorkspace = () => {
@@ -424,6 +455,7 @@ export default function Interview() {
     setInterviewType("mixed");
     setQuestionCount(5);
     setDifficultyMode("progressive");
+    setInterviewerStyle("standard");
     setQuestions([]);
     setCurrentQuestionIndex(0);
     setUserAnswer("");
@@ -482,6 +514,8 @@ export default function Interview() {
     resetConversationState();
     setReport(null);
     setReportError(null);
+    setConsistency(null);
+    setConsistencyLoading(false);
 
     try {
       const resumeBrief = needResume ? briefOfVersion(resumeVersion) : "";
@@ -494,6 +528,7 @@ export default function Interview() {
         count: questionCount,
         difficulty: difficultyMode,
         focusCategories: Array.isArray(focusCategories) ? focusCategories : [],
+        style: interviewerStyle,
       });
 
       const qs = Array.isArray(result.questions) ? result.questions : [];
@@ -507,6 +542,7 @@ export default function Interview() {
         resumeBrief,
         mode,
         type: interviewType,
+        style: interviewerStyle,
         resumeId: needResume ? resumeVersion.id : "",
         resumeName: needResume ? resumeVersion.name : "",
       };
@@ -515,7 +551,7 @@ export default function Interview() {
         hasJd: withJd && jd.trim().length > 0,
         resumeName: needResume ? resumeVersion.name : "",
       });
-      track("interview_generate", { ctx: mode, type: interviewType, count: questionCount, difficulty: difficultyMode, focus: Array.isArray(focusCategories) ? focusCategories.length : 0 });
+      track("interview_generate", { ctx: mode, type: interviewType, count: questionCount, difficulty: difficultyMode, focus: Array.isArray(focusCategories) ? focusCategories.length : 0, style: interviewerStyle });
     } catch (err) {
       setError(`生成面试题失败: ${err.message}`);
     } finally {
@@ -549,6 +585,7 @@ export default function Interview() {
         jobTitle: ctx.jobTitle,
         jobDescription: ctx.jd,
         resumeBrief: ctx.resumeBrief,
+        style: ctx.style || "standard",
       });
       if (result?.followUp) {
         setFollowUp({ question: result.followUp, angle: result.angle || "" });
@@ -605,6 +642,7 @@ export default function Interview() {
         resumeBrief: ctx.resumeBrief,
         followUpQuestion: hasFollowUp ? followUp.question : "",
         followUpAnswer: followUpAnswer.trim(),
+        style: ctx.style || "standard",
       });
 
       setEvaluation(result);
@@ -640,6 +678,37 @@ export default function Interview() {
     }
   };
 
+  /** 回答-简历矛盾点对照(按需触发):把本题回答(含补答)与简历原文逐点比对 */
+  const runConsistencyCheck = async () => {
+    if (!ctxRef.current?.resumeBrief) {
+      setError("本次面试没有结合简历，无法做回答-简历对照；可开启「我的简历」后重新出题。");
+      return;
+    }
+    const currentQuestion = questions[currentQuestionIndex];
+    const ctx = ctxRef.current;
+    setConsistencyLoading(true);
+    setError(null);
+    try {
+      const result = await api.consistencyCheck({
+        question: currentQuestion?.question || "",
+        userAnswer,
+        resumeBrief: ctx.resumeBrief,
+        followUpAnswer: followUpAnswer.trim(),
+      });
+      setConsistency(result);
+      // 结果并入本题记录(同题重答/重新对照则覆盖)
+      setSessionRecords((prev) =>
+        prev.map((r) => (r.question === currentQuestion?.question ? { ...r, consistency: result } : r))
+      );
+      setSessionSaved(false);
+      track("interview_consistency_check", { verdict: result.verdict, items: (result.items || []).length });
+    } catch (err) {
+      setError(`简历对照失败: ${err.message}`);
+    } finally {
+      setConsistencyLoading(false);
+    }
+  };
+
   /** 保存本次练习到个人中心历史 */
   const saveSession = () => {
     if (sessionRecords.length === 0) {
@@ -657,6 +726,7 @@ export default function Interview() {
         jdPreview: (ctx.jd || "").trim().slice(0, 80),
         resumeId: ctx.resumeId || "",
         resumeName: ctx.resumeName || "",
+        style: ctx.style || interviewerStyle || "standard",
       },
       records: sessionRecords,
       report: report ? { stats: report.stats, llm: report.llm } : null,
@@ -673,6 +743,7 @@ export default function Interview() {
     setCurrentQuestionIndex(next);
     setUserAnswer("");
     setEvaluation(null);
+    setConsistency(null);
     setRevealedRef(false);
     resetConversationState();
     // 换题自动读题:手势栈内同步调用,浏览器允许开口;失败则静默(题卡仍有「面试官读题」按钮兜底)
@@ -1046,6 +1117,19 @@ export default function Interview() {
             </select>
             <p className="iv-tip">默认关闭；开启后每题展示即倒计时，到时语音自动定稿并提示</p>
           </div>
+          <div className="iv-field" style={{ flex: '1 1 200px', minWidth: 180 }}>
+            <label htmlFor="iv-style">面试官风格</label>
+            <select
+              id="iv-style"
+              value={interviewerStyle}
+              onChange={(e) => setInterviewerStyle(e.target.value)}
+            >
+              {STYLE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <p className="iv-tip">决定提问锋芒与语气；评分标准不因风格改变</p>
+          </div>
         </div>
 
         <button
@@ -1391,6 +1475,41 @@ export default function Interview() {
                 <div className="iv-eval-sec">
                   <strong>🌟 参考答案示例：</strong>
                   <p className="iv-eval-ref">{evaluation.improvedAnswer}</p>
+                </div>
+              )}
+
+              {/* 回答-简历矛盾点对照(需简历背景,按需触发) */}
+              {ctxRef.current?.resumeBrief && (
+                <div className="iv-cons-actions">
+                  <button className="btn-ghost" onClick={runConsistencyCheck} disabled={consistencyLoading}>
+                    {consistencyLoading ? '⏳ 正在对照简历…' : consistency ? '🔄 重新对照' : '🔍 与简历对照矛盾点'}
+                  </button>
+                  <span className="iv-answer-side">把你的回答与简历原文逐点比对：提到但简历没有 / 声明了但说不清 / 明显矛盾</span>
+                </div>
+              )}
+              {consistency && (
+                <div className={`iv-consistency v-${consistency.verdict}`}>
+                  <div className="iv-cons-head">
+                    <strong>{(CONS_VERDICT[consistency.verdict] || CONS_VERDICT.minor).icon} {(CONS_VERDICT[consistency.verdict] || CONS_VERDICT.minor).text}</strong>
+                    {consistency.summary && <span className="iv-cons-summary">{consistency.summary}</span>}
+                  </div>
+                  {(consistency.items || []).map((it, i) => {
+                    const kind = CONS_KIND[it.kind] || CONS_KIND.unclear;
+                    return (
+                      <div key={i} className="iv-cons-item">
+                        <div className="iv-cons-item-head">
+                          <span className="iv-cons-kind" style={{ color: kind.fg, background: kind.bg }}>{kind.label}</span>
+                          <b>{it.point}</b>
+                        </div>
+                        {it.detail && <p className="iv-cons-detail">{it.detail}</p>}
+                        {it.advice && <p className="iv-cons-advice">→ {it.advice}</p>}
+                      </div>
+                    );
+                  })}
+                  {(consistency.items || []).length === 0 && (
+                    <p className="iv-cons-detail">没有发现明显矛盾点 —— 回答与简历内容吻合，继续保持。</p>
+                  )}
+                  <p className="iv-cons-note">护栏：对照只提示「核实或补充」，绝不建议编造；简历没写全的经历可以补进简历，但面试里说的必须是真的。</p>
                 </div>
               )}
             </div>

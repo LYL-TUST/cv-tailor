@@ -33,6 +33,8 @@
  *  - interview_report_retrain 复盘弱题一键收藏   { added, dup }                 (P2.5 复盘→再练闭环)
  *  - interview_weak_drill  能力画像弱项一键针对性再练 { categories, source: radar } (P3 画像→定向再练闭环)
  *                            (interview_generate 同步增加 focus 属性 = 定向维度数)
+ *  - interview_consistency_check 回答-简历矛盾点对照 { verdict, items }              (P4 真实性护栏)
+ *                            (interview_generate/follow-up/evaluate 同步增加 style 属性 = 面试官风格档位)
  */
 
 const EVENTS_KEY = "arb_analytics_events_v1";
