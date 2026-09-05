@@ -1,5 +1,6 @@
 import EditableField from '../editor/EditableField';
 import ResumePhotoSlot from './ResumePhotoSlot';
+import { injectCustomBlocks } from './CustomModules';
 import { TEMPLATE_ZONES, zoneSeq } from '../../utils/resumeSettings';
 
 /**
@@ -14,15 +15,18 @@ import { TEMPLATE_ZONES, zoneSeq } from '../../utils/resumeSettings';
 const StylishPreview = ({
     resume,
     settings,
+    zones,
     onUpdateField,
     onUpdateExperience,
     onUpdateBullet,
     onUpdateEducation,
+    onUpdateCustom,
 }) => {
     const vis = (id) => settings?.moduleVisible?.[id] !== false;
     const order = settings?.moduleOrder || null;
-    const leftZone = TEMPLATE_ZONES.stylish[0];
-    const rightZone = TEMPLATE_ZONES.stylish[1];
+    const zz = zones || TEMPLATE_ZONES.stylish;
+    const leftZone = zz[0];
+    const rightZone = zz[zz.length - 1]; // 右栏(含注入的自定义模块)
     const leftOrder = order ? zoneSeq(order, leftZone).filter((id) => vis(id)) : leftZone.modules.filter((id) => vis(id));
     const rightOrder = order ? zoneSeq(order, rightZone).filter((id) => vis(id)) : rightZone.modules.filter((id) => vis(id));
 
@@ -104,6 +108,7 @@ const StylishPreview = ({
             </section>
         ),
     };
+    injectCustomBlocks(rightBlocks, resume.customSections, onUpdateCustom);
 
     return (
         <div className="resume-card-stylish">

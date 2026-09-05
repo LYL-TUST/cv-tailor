@@ -169,9 +169,10 @@ router.post("/generate-docx", async (req, res) => {
             experience: { on: visOn("experience") && has(resumeData.experience), gen: genExperience },
             education: { on: visOn("education") && has(resumeData.education), gen: genEducation },
         };
-        // 默认顺序(与前端 CONTENT_MODULES 默认一致)
+        // 默认顺序(与前端 CONTENT_MODULES 默认一致);内置模块齐全则信任保存顺序(可含 custom:* 自定义 id)
         const DEFAULT_ORDER = ["summary", "experience", "education", "skills"];
-        const moduleSeq = (order && order.length === 4) ? order : DEFAULT_ORDER;
+        const hasAllDefaults = Array.isArray(order) && DEFAULT_ORDER.every((id) => order.includes(id));
+        const moduleSeq = hasAllDefaults ? order : DEFAULT_ORDER;
 
         /* ===== 组装 ===== */
         const sections = [];
@@ -191,6 +192,27 @@ router.post("/generate-docx", async (req, res) => {
 
         moduleSeq.forEach((id) => {
             const m = GENERATORS[id];
+            if (m && m.on) sections.push(...m.gen());
+        });
+
+        // 自定义模块(文本块型):与内置模块同入渲染表;moduleSeq 已含 custom:* 时随顺序输出,
+        // 旧数据缺失时兜底追加到末尾
+        const customs = (Array.isArray(resumeData.customSections) ? resumeData.customSections : [])
+            .map((s) => ({ key: `custom:${s.id}`, title: s.title || "", body: s.body || "" }))
+            .filter((c) => c.title || c.body);
+        const GEN_ALL = { ...GENERATORS };
+        customs.forEach((c) => {
+            GEN_ALL[c.key] = {
+                on: visOn(c.key) && (c.title || c.body),
+                gen: () => [
+                    ...(c.title ? [new Paragraph({ text: c.title, heading: HeadingLevel.HEADING_3, spacing: { before: 240, after: 80 } })] : []),
+                    ...(c.body ? [new Paragraph({ children: [new TextRun({ text: c.body, size: bodySize })], spacing: spacingOpts, alignment: align })] : []),
+                ],
+            };
+        });
+        const leftover = customs.map((c) => c.key).filter((k) => !moduleSeq.includes(k));
+        [...moduleSeq.filter((k) => k.startsWith('custom:')), ...leftover].forEach((id) => {
+            const m = GEN_ALL[id];
             if (m && m.on) sections.push(...m.gen());
         });
 

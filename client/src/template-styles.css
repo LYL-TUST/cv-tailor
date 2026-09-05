@@ -347,7 +347,7 @@
     justify-content: center;
 }
 
-/* 只读态(Download/导出预览):统一圆角白框 */
+/* 只读态照片(模板预览等场景):统一圆角白框 */
 .resume-photo-static img {
     width: 100%;
     height: 100%;

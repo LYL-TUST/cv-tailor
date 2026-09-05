@@ -74,10 +74,25 @@ export function readSettings(data) {
   return {
     typography: { ...base.typography, ...(s.typography || {}) },
     moduleVisible: { ...base.moduleVisible, ...(s.moduleVisible || {}) },
-    moduleOrder: (s.moduleOrder && s.moduleOrder.length === CONTENT_MODULES.length)
-      ? s.moduleOrder
-      : base.moduleOrder,
+    moduleOrder: sanitizeOrder(s.moduleOrder, base.moduleOrder),
   };
+}
+
+/**
+ * 排序表清洗:允许内置模块之外的自定义模块 id(形如 custom:<id>)。
+ * 去重;内置模块缺失时按默认顺序补齐(旧数据仍可用)。
+ */
+function sanitizeOrder(list, baseOrder) {
+  if (!Array.isArray(list) || list.length === 0) return baseOrder;
+  const seen = new Set();
+  const out = [];
+  for (const id of list) {
+    if (typeof id === "string" && !seen.has(id)) { seen.add(id); out.push(id); }
+  }
+  for (const id of baseOrder) {
+    if (!seen.has(id)) { seen.add(id); out.push(id); }
+  }
+  return out;
 }
 
 /* ============ 模板分区(栏)模型 ============ */
@@ -111,9 +126,39 @@ export function zonesFor(templateId) {
   return TEMPLATE_ZONES[templateId] || TEMPLATE_ZONES.classy;
 }
 
-/** 某个栏内、按全局 moduleOrder 相对顺序排列的模块 id 序列 */
+/** 模板的"正文/主内容"栏 id(自定义模块默认挂到这一栏,双栏=主栏/右栏) */
+export function mainZoneIdOf(templateId) {
+  const z = zonesFor(templateId);
+  return z.length > 1 ? z[z.length - 1].id : z[0].id;
+}
+
+/**
+ * 把自定义模块(custom:<id>)注入模板的"正文/主内容"栏分区,
+ * 使自定义模块与内置模块在同一栏内按全局 moduleOrder 交错编排。
+ * 无自定义时原样返回静态分区。
+ */
+export function zonesWithCustom(templateId, customKeys = []) {
+  const zones = zonesFor(templateId);
+  const rest = (customKeys || []).filter((k) => typeof k === 'string' && k);
+  if (rest.length === 0) return zones;
+  const mainId = zones.length > 1 ? zones[zones.length - 1].id : zones[0].id;
+  return zones.map((z) => (z.id === mainId
+    ? { ...z, modules: [...z.modules, ...rest] }
+    : z));
+}
+
+/**
+ * 某个栏内、按全局 moduleOrder 相对顺序排列的模块 id 序列。
+ * (对默认 moduleOrder 结果与旧静态布局完全一致;拖拽/自定义注入后真正生效)
+ */
 export function zoneSeq(order, zone) {
-  return zone.modules.filter((id) => order.includes(id));
+  const rank = (id) => {
+    const i = order.indexOf(id);
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return zone.modules
+    .filter((id) => order.includes(id))
+    .sort((a, b) => rank(a) - rank(b));
 }
 
 /**

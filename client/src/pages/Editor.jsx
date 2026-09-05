@@ -14,7 +14,9 @@ import StylishPreview from "../components/templates/StylishTemplate";
 
 import EditorTopbar from "../components/editor/EditorTopbar";
 import EditorDrawer from "../components/editor/EditorDrawer";
-import { defaultSettings, readSettings, zonesFor } from "../utils/resumeSettings";
+import { defaultSettings, readSettings, zonesWithCustom } from "../utils/resumeSettings";
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 
 /** 模板元数据 —— 与右侧抽屉的"切换模板"tab 共享 */
 const TEMPLATES = [
@@ -46,9 +48,37 @@ const blankResume = () => ({
     field: "",
     graduationYear: "",
   }],
+  customSections: [],
 });
 
 const PAGE_H = 1160; // A4 近似页高(与 .canvas-paper min-height 一致)
+
+/** 编辑器格式 → ATS 存储格式(导出 DOCX 与 persist 共用同一转换,保证一致) */
+const toAtsData = (resume, templateId) => ({
+  personalInfo: {
+    name: resume.name,
+    title: resume.title,
+    email: resume.email,
+    phone: resume.phone,
+    location: resume.location,
+    linkedin: resume.linkedin,
+    photo: resume.photo || "",
+  },
+  summary: resume.summary,
+  skills: resume.skills.split(',').map((s) => s.trim()).filter(Boolean),
+  experience: resume.experiences.map((exp) => ({
+    company: exp.company,
+    position: exp.role,
+    duration: exp.duration,
+    bullets: exp.bullets.filter((b) => b.trim()),
+  })),
+  education: resume.education,
+  customSections: (resume.customSections || []).map((s) => ({
+    id: s.id, title: s.title || '', body: s.body || '',
+  })),
+  selectedTemplate: templateId,
+  settings: resume._settings || defaultSettings(),
+});
 
 /** ATS 格式 → 编辑器格式 */
 const atsToEditor = (resumeData) => {
@@ -73,13 +103,16 @@ const atsToEditor = (resumeData) => {
       duration: "",
       bullets: [""],
     }],
-    education: resumeData.education?.length > 0 ? resumeData.education : [{
-      school: "",
-      degree: "",
-      field: "",
-      graduationYear: "",
-    }],
-  };
+  education: resumeData.education?.length > 0 ? resumeData.education : [{
+    school: "",
+    degree: "",
+    field: "",
+    graduationYear: "",
+  }],
+  customSections: Array.isArray(resumeData.customSections)
+    ? resumeData.customSections.map((s) => ({ id: s.id, title: s.title || '', body: s.body || '' }))
+    : [],
+};
   editor._settings = readSettings(resumeData);
   return editor;
 };
@@ -87,7 +120,12 @@ const atsToEditor = (resumeData) => {
 export default function Editor() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const templateId = searchParams.get('template') || 'professional';
+  // 当前模板:进入时由 URL 意图决定,切换后写入激活版本 selectedTemplate 并随 URL 同步。
+  // (修复:模板原先只存在于 URL query,重进/切版本即回默认 professional)
+  const [templateId, setTemplateId] = useState(() => {
+    const urlTpl = searchParams.get('template');
+    return TEMPLATES.some((t) => t.id === urlTpl) ? urlTpl : 'professional';
+  });
 
   const [resume, setResume] = useState(blankResume());
   const [versions, setVersions] = useState([]);
@@ -134,6 +172,16 @@ export default function Editor() {
       const active = getActiveVersion();
       if (active) {
         setActiveId(active.id);
+        // 模板:URL 意图(如从模板库进入)优先;否则回读激活版本保存的模板
+        const urlTpl = searchParams.get('template');
+        const savedTpl = active.data?.selectedTemplate || active.data?.settings?.template || '';
+        const tpl = TEMPLATES.some((t) => t.id === urlTpl)
+          ? urlTpl
+          : TEMPLATES.some((t) => t.id === savedTpl) ? savedTpl : 'professional';
+        setTemplateId(tpl);
+        if (!urlTpl && tpl !== 'professional') {
+          setSearchParams({ template: tpl }, { replace: true }); // 让 URL 与生效模板一致(刷新不丢)
+        }
         if (active.data && !active.data.empty) {
           const restored = atsToEditor(active.data);
           setResume(restored);
@@ -207,12 +255,63 @@ export default function Editor() {
     return { ...r, experiences: exps };
   });
 
-  /* 设置(模块可见/排序/排版)——存于 resume._settings,随简历一并持久化 */
-  const updateSettings = (patch) => updateWithHistory((r) => ({
-    ...r,
-    _settings: { ...(r._settings || defaultSettings()), ...patch },
-  }));
+  /* 设置(模块可见/排序/排版)——存于 resume._settings,随简历一并持久化。
+     typography/moduleVisible 做嵌套合并,避免快速连续点击时旧快照互相覆盖 */
+  const updateSettings = (patch) => updateWithHistory((r) => {
+    const cur = r._settings || defaultSettings();
+    const next = { ...cur, ...patch };
+    if (patch.typography) next.typography = { ...cur.typography, ...patch.typography };
+    if (patch.moduleVisible) next.moduleVisible = { ...cur.moduleVisible, ...patch.moduleVisible };
+    return { ...r, _settings: next };
+  });
   const currentSettings = resume._settings || defaultSettings();
+  // 模板栏分区:把自定义模块注入正文/主栏,参与与内置模块的顺序编排(键与 moduleOrder 一致)
+  const customKeys = (resume.customSections || []).map((s) => `custom:${s.id}`);
+  const previewZones = zonesWithCustom(templateId, customKeys);
+
+  /* ===== 自定义模块(文本块型):键 custom:<id>,挂进全局 moduleOrder 尾端 ===== */
+  const customKey = (id) => `custom:${id}`;
+  const updateCustom = (id, field, value) => updateWithHistory((r) => ({
+    ...r,
+    customSections: (r.customSections || []).map((s) => (s.id === id ? { ...s, [field]: value } : s)),
+  }));
+
+  const addCustom = () => updateWithHistory((r) => {
+    const cur = r._settings || defaultSettings();
+    const id = `c_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    const key = customKey(id);
+    return {
+      ...r,
+      customSections: [...(r.customSections || []), { id, title: "自定义模块", body: "" }],
+      _settings: {
+        ...cur,
+        moduleVisible: { ...cur.moduleVisible, [key]: true },
+        moduleOrder: [...cur.moduleOrder, key],
+      },
+    };
+  });
+
+  const renameCustom = (id) => {
+    const sec = (resume.customSections || []).find((s) => s.id === id);
+    const name = window.prompt("修改模块标题（也可直接在画布上点击标题编辑）", sec?.title || "自定义模块");
+    if (name === null) return;
+    updateCustom(id, "title", name.trim() || "自定义模块");
+  };
+
+  const removeCustom = (id) => {
+    if (!window.confirm("删除该自定义模块？其内容会一并移除。")) return;
+    updateWithHistory((r) => {
+      const cur = r._settings || defaultSettings();
+      const key = customKey(id);
+      const mv = { ...cur.moduleVisible };
+      delete mv[key];
+      return {
+        ...r,
+        customSections: (r.customSections || []).filter((s) => s.id !== id),
+        _settings: { ...cur, moduleVisible: mv, moduleOrder: cur.moduleOrder.filter((k) => k !== key) },
+      };
+    });
+  };
 
   const addExperience = () => updateWithHistory((r) => ({
     ...r,
@@ -458,29 +557,7 @@ export default function Editor() {
   useEffect(() => {
     if (!hydrated) return;
     try {
-      const resumeDataForATS = {
-        personalInfo: {
-          name: resume.name,
-          title: resume.title,
-          email: resume.email,
-          phone: resume.phone,
-          location: resume.location,
-          linkedin: resume.linkedin,
-          photo: resume.photo || "",
-        },
-        summary: resume.summary,
-        skills: resume.skills.split(',').map((s) => s.trim()).filter(Boolean),
-        experience: resume.experiences.map((exp) => ({
-          company: exp.company,
-          position: exp.role,
-          duration: exp.duration,
-          bullets: exp.bullets.filter((b) => b.trim()),
-        })),
-        education: resume.education,
-        selectedTemplate: templateId,
-        settings: resume._settings || defaultSettings(),
-      };
-      writeThrough(resumeDataForATS);
+      writeThrough(toAtsData(resume, templateId));
     } catch (err) {
       console.error('保存简历数据失败:', err);
     }
@@ -519,6 +596,10 @@ export default function Editor() {
     setResume(restored);
     setHistory([restored]);
     setHistoryCursor(0);
+    // 模板跟随版本(每个版本保存各自 selectedTemplate)
+    const tpl = TEMPLATES.some((t) => t.id === target.data?.selectedTemplate) ? target.data.selectedTemplate : 'professional';
+    setTemplateId(tpl);
+    if (searchParams.get('template') !== tpl) setSearchParams({ template: tpl }, { replace: true });
     track("resume_version_switch", { from: activeId, to: id });
   };
 
@@ -546,6 +627,9 @@ export default function Editor() {
     setResume(restored);
     setHistory([restored]);
     setHistoryCursor(0);
+    const tpl = TEMPLATES.some((t) => t.id === target?.data?.selectedTemplate) ? target.data.selectedTemplate : 'professional';
+    setTemplateId(tpl);
+    if (searchParams.get('template') !== tpl) setSearchParams({ template: tpl }, { replace: true });
     refreshVersions();
     track("resume_version_delete", {});
   };
@@ -553,6 +637,7 @@ export default function Editor() {
   /* ===== 模板切换 ===== */
   const handleSelectTemplate = (id) => {
     if (id === templateId) return;
+    setTemplateId(id);
     setSearchParams({ template: id }, { replace: true });
     track("template_change", { template: id });
   };
@@ -627,7 +712,118 @@ export default function Editor() {
   };
   const handlePaperBlur = () => setFieldAI(null);
 
-  const handleDownload = () => navigate("/download");
+  const [exportBusy, setExportBusy] = useState(""); // '' | 'pdf' | 'docx' | 'txt'
+
+  /** 就地导出:PDF 截当前画布 / Word 走后端(带 settings) / 纯文本手拼 */
+  const exportResume = async (format) => {
+    const baseName = (resume.name || "").trim() || "简历";
+    const fileBase = baseName.replace(/\s+/g, "_");
+
+    if (format === "pdf") {
+      const el = paperRef.current;
+      if (!el) {
+        setError("画布还没准备好,请稍后再试");
+        return;
+      }
+      setExportBusy("pdf");
+      try {
+        const startedAt = Date.now();
+        const canvas = await html2canvas(el, {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+          logging: false,
+        });
+        const imgData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pw = pdf.internal.pageSize.getWidth();
+        const ph = pdf.internal.pageSize.getHeight();
+        const imgH = (canvas.height * pw) / canvas.width;
+        let pos = 0;
+        let left = imgH;
+        pdf.addImage(imgData, "PNG", 0, pos, pw, imgH);
+        left -= ph;
+        while (left > 0) {
+          pos -= ph;
+          pdf.addPage();
+          pdf.addImage(imgData, "PNG", 0, pos, pw, imgH);
+          left -= ph;
+        }
+        pdf.save(`${fileBase}_简历.pdf`);
+        track("pdf_export", { status: "success", ms: Date.now() - startedAt, from: "editor" });
+      } catch (err) {
+        track("pdf_export", { status: "fail", reason: String(err.message || err).slice(0, 120), from: "editor" });
+        setError(`PDF 导出失败: ${err.message || err}`);
+      } finally {
+        setExportBusy("");
+      }
+      return;
+    }
+
+    if (format === "docx") {
+      setExportBusy("docx");
+      try {
+        const startedAt = Date.now();
+        await api.downloadDOCX({ resumeData: toAtsData(resume, templateId) });
+        track("docx_export", { status: "success", ms: Date.now() - startedAt, from: "editor" });
+      } catch (err) {
+        track("docx_export", { status: "fail", reason: String(err.message || err).slice(0, 120), from: "editor" });
+        setError(`Word 导出失败: ${err.message || err}`);
+      } finally {
+        setExportBusy("");
+      }
+      return;
+    }
+
+    if (format === "txt") {
+      try {
+        const lines = [];
+        if (resume.name) lines.push(resume.name);
+        if (resume.title) lines.push(resume.title);
+        const contacts = [resume.email, resume.phone, resume.location, resume.linkedin].filter(Boolean);
+        if (contacts.length) lines.push(contacts.join(" | "));
+        lines.push("=".repeat(50));
+        if (resume.summary) lines.push("个人简介", resume.summary, "");
+        const skillList = resume.skills.split(",").map((s) => s.trim()).filter(Boolean);
+        if (skillList.length) lines.push("技能: " + skillList.join(", "), "");
+        if (resume.experiences.some((e) => e.company || e.role || e.bullets.some((b) => b.trim()))) {
+          lines.push("工作/项目经历");
+          resume.experiences.forEach((exp) => {
+            const head = [exp.role, exp.company, exp.duration].filter(Boolean).join(" — ");
+            if (head) lines.push(head);
+            exp.bullets.filter((b) => b.trim()).forEach((b) => lines.push(`  • ${b}`));
+            lines.push("");
+          });
+        }
+        const edu = resume.education.filter((e) => e.school || e.degree);
+        if (edu.length) {
+          lines.push("教育背景");
+          edu.forEach((e) => lines.push(`  • ${[e.school, e.degree, e.field, e.graduationYear].filter(Boolean).join(" · ")}`));
+        }
+        const customs = (resume.customSections || []).filter((s) => s.title || s.body);
+        customs.forEach((s) => {
+          lines.push(s.title || "自定义模块");
+          if (s.body) lines.push(s.body);
+          lines.push("");
+        });
+        const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${fileBase}_简历.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        track("txt_export", { status: "success", from: "editor" });
+      } catch (err) {
+        track("txt_export", { status: "fail", reason: String(err.message || err).slice(0, 120), from: "editor" });
+        setError(`纯文本导出失败: ${err.message || err}`);
+      } finally {
+        setExportBusy("");
+      }
+    }
+  };
 
   const handleToggleDrawer = () => setDrawerOpen((v) => !v);
 
@@ -655,7 +851,8 @@ export default function Editor() {
         activeAI={activeAI}
         onAISelect={setActiveAI}
         onAI={handleAI}
-        onDownload={handleDownload}
+        onExport={exportResume}
+        exportBusy={exportBusy}
         onToggleDrawer={handleToggleDrawer}
         drawerOpen={drawerOpen}
         undoCount={undoCount}
@@ -723,15 +920,20 @@ export default function Editor() {
                   padding: currentSettings.typography.margin,
                   fontSize: currentSettings.typography.fontSize,
                   lineHeight: currentSettings.typography.lineHeight,
+                  // 排版 CSS 变量:正文 p/li 跟随,模板内部固定 px 由 CSS !important 覆盖
+                  "--res-fs": `${currentSettings.typography.fontSize}px`,
+                  "--res-lh": currentSettings.typography.lineHeight,
                 }}
               >
                 <PreviewComponent
                   resume={resume}
                   settings={currentSettings}
+                  zones={previewZones}
                   onUpdateField={updateField}
                   onUpdateExperience={updateExperience}
                   onUpdateBullet={updateBullet}
                   onUpdateEducation={updateEducation}
+                  onUpdateCustom={updateCustom}
                 />
 
                 {/* 长简历分页线(连续流预览,与 Word 分页语义一致) */}
@@ -789,10 +991,14 @@ export default function Editor() {
           currentTemplateId={templateId}
           onSelectTemplate={handleSelectTemplate}
           settings={currentSettings}
-          zones={zonesFor(templateId)}
+          zones={previewZones}
           onSettingsChange={updateSettings}
           requestedTab={drawerTabReq.tab}
           tabRequestTick={drawerTabReq.tick}
+          customSections={resume.customSections || []}
+          onAddCustom={addCustom}
+          onRenameCustom={renameCustom}
+          onRemoveCustom={removeCustom}
         />
       </div>
     </section>

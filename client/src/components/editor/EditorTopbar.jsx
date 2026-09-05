@@ -2,11 +2,11 @@
  * Editor 顶部工具条 —— WPS 风
  *
  * 布局:
- *   [ 我的简历 ▾ ]  [ ↶ ↷ ]    [ 🤖 AI 一键优化 ] [ ✨ 简历美化 ] [ 📊 智能分析 ] [ 🎤 AI 面试官 ]    [ 下载简历 ]
+ *   [ 我的简历 ▾ ]  [ ↶ ↷ ]    [ 🤖 AI 一键优化 ] [ ✨ 简历美化 ] [ 📊 智能分析 ] [ 🎤 AI 面试官 ]    [ 下载简历 ▾ ]
  *
  * 简历下拉:多版本切换 + 新建/复制/重命名/删除
  * AI 工具组:点击触发对应 AI(feature 传入 onAI)
- * 下载按钮:跳转 /download
+ * 下载下拉:就地导出 PDF / Word(DOCX)/ 纯文本(所见即所得)
  */
 import { useState, useRef, useEffect } from "react";
 
@@ -15,6 +15,12 @@ const AI_TOOLS = [
   { id: "beautify", icon: "✨", label: "简历美化" },
   { id: "analyze", icon: "📊", label: "智能分析" },
   { id: "interview", icon: "🎤", label: "AI 面试官", badge: "NEW" },
+];
+
+const EXPORT_ITEMS = [
+  { id: "pdf",  icon: "📄", label: "PDF 文件",  desc: "所见即所得,适合投递与打印" },
+  { id: "docx", icon: "📝", label: "Word (DOCX)", desc: "保留结构与排版,可继续编辑" },
+  { id: "txt",  icon: "🔤", label: "纯文本 (TXT)", desc: "复制粘贴到招聘网站在线简历" },
 ];
 
 export default function EditorTopbar({
@@ -28,7 +34,8 @@ export default function EditorTopbar({
   activeAI,
   onAISelect,
   onAI,
-  onDownload,
+  onExport,
+  exportBusy = "",
   onToggleDrawer,
   drawerOpen,
   undoCount = 0,
@@ -37,18 +44,28 @@ export default function EditorTopbar({
   onRedo,
 }) {
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const menuRef = useRef(null);
+  const exportRef = useRef(null);
 
   useEffect(() => {
-    if (!versionMenuOpen) return;
+    if (!versionMenuOpen && !exportMenuOpen) return;
     const close = (e) => {
-      if (!menuRef.current?.contains(e.target)) setVersionMenuOpen(false);
+      if (menuRef.current?.contains(e.target) || exportRef.current?.contains(e.target)) return;
+      setVersionMenuOpen(false);
+      setExportMenuOpen(false);
     };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
-  }, [versionMenuOpen]);
+  }, [versionMenuOpen, exportMenuOpen]);
 
   const activeVersion = versions.find((v) => v.id === activeId);
+
+  const runExport = (fmt) => {
+    setExportMenuOpen(false);
+    if (exportBusy) return;
+    onExport?.(fmt);
+  };
 
   return (
     <div className="editor-topbar">
@@ -155,7 +172,7 @@ export default function EditorTopbar({
         ))}
       </div>
 
-      {/* 右侧:抽屉 toggle + 下载 */}
+      {/* 右侧:抽屉 toggle + 下载(就地导出) */}
       <div className="tb-right">
         <button
           className={`tb-drawer-toggle${drawerOpen ? " active" : ""}`}
@@ -167,10 +184,39 @@ export default function EditorTopbar({
           <span aria-hidden="true">🎨</span>
           <span className="tb-drawer-toggle-label">美化</span>
         </button>
-        <button className="tb-download" onClick={onDownload}>
-          <span aria-hidden="true">⤓</span>
-          <span>下载简历</span>
-        </button>
+        <div className="tb-download-wrap" ref={exportRef}>
+          <button
+            className={`tb-download${exportBusy ? " busy" : ""}`}
+            onClick={() => setExportMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={exportMenuOpen}
+            disabled={!!exportBusy}
+          >
+            <span aria-hidden="true">{exportBusy ? "⏳" : "⤓"}</span>
+            <span>{exportBusy ? "导出中…" : "下载简历"}</span>
+            {!exportBusy && <span className="tb-download-caret" aria-hidden="true">▾</span>}
+          </button>
+
+          {exportMenuOpen && (
+            <div className="tb-download-menu" role="menu">
+              <div className="tb-download-menu-head">导出当前简历</div>
+              {EXPORT_ITEMS.map((it) => (
+                <button
+                  key={it.id}
+                  role="menuitem"
+                  className="tb-dl-item"
+                  onClick={() => runExport(it.id)}
+                >
+                  <span className="tb-dl-ico" aria-hidden="true">{it.icon}</span>
+                  <span className="tb-dl-body">
+                    <span className="tb-dl-name">{it.label}</span>
+                    <span className="tb-dl-desc">{it.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

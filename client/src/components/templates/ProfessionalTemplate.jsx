@@ -1,5 +1,6 @@
 import EditableField from '../editor/EditableField';
 import ResumePhotoSlot from './ResumePhotoSlot';
+import { injectCustomBlocks } from './CustomModules';
 import { TEMPLATE_ZONES, zoneSeq } from '../../utils/resumeSettings';
 
 /**
@@ -10,19 +11,23 @@ import { TEMPLATE_ZONES, zoneSeq } from '../../utils/resumeSettings';
  *   main    = [experience, education, skills](主栏内可拖拽排序)
  * 顺序来自 settings.moduleOrder(全局),各栏按其中相对顺序过滤渲染。
  * 当 onUpdateField/onUpdateExperience/onUpdateBullet/onUpdateEducation 任一提供时,
- * 字段以 contentEditable 渲染,直接点击修改;否则显示 fallback 占位符(向后兼容 Templates/Download)。
+ * 字段以 contentEditable 渲染,直接点击修改;否则显示 fallback 占位符(向后兼容只读预览)。
  */
 const ProfessionalPreview = ({
   resume,
   settings,
+  zones,
   onUpdateField,
   onUpdateExperience,
   onUpdateBullet,
   onUpdateEducation,
+  onUpdateCustom,
 }) => {
     const vis = (id) => settings?.moduleVisible?.[id] !== false;
     const order = settings?.moduleOrder || null;
-    const mainZone = TEMPLATE_ZONES.professional[1]; // main
+    const zz = zones || TEMPLATE_ZONES.professional;
+    const sidebarZone = zz[0];
+    const mainZone = zz[zz.length - 1]; // 主栏(含注入的自定义模块)
     const mainOrder = order ? zoneSeq(order, mainZone).filter((id) => vis(id)) : mainZone.modules.filter((id) => vis(id));
 
     // 工厂:有回调时用 EditableField(可编辑),否则走 fallback 占位符(只读)
@@ -97,6 +102,7 @@ const ProfessionalPreview = ({
             </section>
         ),
     };
+    injectCustomBlocks(mainBlocks, resume.customSections, onUpdateCustom);
 
     return (
         <div className="resume-card-professional">
@@ -117,7 +123,7 @@ const ProfessionalPreview = ({
                     <div className="contact-item">💼 <EditableSpan onUpdate={onUpdateField} field="linkedin" value={resume.linkedin} placeholder="linkedin.com/in/你的主页" /></div>
                 )}
 
-                {(order ? zoneSeq(order, TEMPLATE_ZONES.professional[0]).includes('summary') : vis('summary'))
+                {(order ? zoneSeq(order, sidebarZone).includes('summary') : vis('summary'))
                   && (resume.summary || onUpdateField) && (
                     <>
                         <h4>个人简介</h4>

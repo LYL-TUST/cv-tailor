@@ -5,7 +5,7 @@ import EditablePhoto from "../editor/EditablePhoto";
  *
  * 渲染规则:
  *   - 编辑态(onUpdate 提供):无论有无照片都渲染槽位(空 = 虚线占位"添加照片")
- *   - 只读态(未提供 onUpdate,如 Download/预览):仅在 resume.photo 有值时渲染照片
+ *   - 只读态(未提供 onUpdate,如模板预览/导出场景):仅在 resume.photo 有值时渲染照片
  *
  * 照片位置由各模板 CSS 的 .resume-photo 类控制(见 template-styles.css / styles.css)。
  */

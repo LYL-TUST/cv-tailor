@@ -4,7 +4,7 @@
  * 数据结构：
  * - resume_versions_v1: [{ id, name, createdAt, updatedAt, data }]  data 为 ATS 格式简历
  * - resume_active_v1: 当前激活版本 id
- * - resumeData: 向后兼容的写穿镜像（ATS/Download/Interview 等页面仍直接读它）
+ * - resumeData: 向后兼容的写穿镜像（ATS/Interview 等页面仍直接读它）
  */
 
 const VERSIONS_KEY = "resume_versions_v1";
@@ -81,7 +81,7 @@ export function writeThrough(data) {
     writeVersions(versions);
     if (idx < 0) localStorage.setItem(ACTIVE_KEY, versions[0].id);
   }
-  // 写穿：其他页面（ATS/Download/Interview）仍直接读 resumeData
+  // 写穿：其他页面（ATS/Interview 等）仍直接读 resumeData
   localStorage.setItem(LEGACY_KEY, JSON.stringify(data));
 }
 

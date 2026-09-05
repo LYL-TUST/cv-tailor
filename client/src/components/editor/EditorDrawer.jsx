@@ -49,6 +49,10 @@ export default function EditorDrawer({
   onSettingsChange,
   requestedTab = null,
   tabRequestTick = 0,
+  customSections = [],
+  onAddCustom,
+  onRenameCustom,
+  onRemoveCustom,
 }) {
   const [activeTab, setActiveTab] = useState("templates");
   // 拖拽过程状态(dragIdx 当前行 / overIdx 落点行)
@@ -87,13 +91,17 @@ export default function EditorDrawer({
     if (next !== moduleOrder) onSettingsChange?.({ moduleOrder: next });
   };
 
-  /* 某栏内当前显示顺序对应的模块元数据 */
-  const rowsOf = (zone) => {
-    const seq = zoneSeq(moduleOrder, zone);
-    return seq
-      .map((id) => CONTENT_MODULES.find((m) => m.id === id))
-      .filter(Boolean);
+  /* 某栏内当前显示顺序对应的模块元数据(内置 + 自定义混排) */
+  const metaOf = (id) => {
+    const m = CONTENT_MODULES.find((x) => x.id === id);
+    if (m) return { ...m };
+    if (typeof id === 'string' && id.startsWith('custom:')) {
+      const s = customSections.find((c) => `custom:${c.id}` === id);
+      if (s) return { id, icon: '📦', label: s.title || '未命名模块', custom: true };
+    }
+    return null;
   };
+  const rowsOf = (zone) => zoneSeq(moduleOrder, zone).map(metaOf).filter(Boolean);
 
   const isSingleZone = !zoneList || zoneList.length <= 1;
 
@@ -245,6 +253,12 @@ export default function EditorDrawer({
                           <span className="module-ico" aria-hidden="true">{m.icon}</span>
                           <span className="module-name">{m.label}</span>
                           {!visible && <span className="module-hidden-tag">已隐藏</span>}
+                          {m.custom && (
+                            <span className="module-custom-ops">
+                              <button className="module-mini-btn" title="重命名模块标题" onClick={() => onRenameCustom?.(m.id.slice(7))}>✎</button>
+                              <button className="module-mini-btn danger" title="删除模块" onClick={() => onRemoveCustom?.(m.id.slice(7))}>🗑</button>
+                            </span>
+                          )}
                           <button
                             className={`module-toggle${visible ? " on" : ""}`}
                             onClick={() => toggleModule(m.id)}
@@ -261,6 +275,16 @@ export default function EditorDrawer({
                 </div>
               );
             })}
+
+            {/* 自定义模块入口 */}
+            <div className="module-add-bar">
+              <button className="btn-ghost" style={{ fontSize: 13, padding: "6px 14px" }} onClick={() => onAddCustom?.()}>
+                ＋ 添加自定义模块
+              </button>
+              <p className="drawer-section-hint">
+                自定义模块会作为「📦」出现在上方模块列表中，可与内置模块一起拖拽编排顺序。
+              </p>
+            </div>
 
             {zoneList && zoneList.length > 1 && (
               <div className="module-hint">

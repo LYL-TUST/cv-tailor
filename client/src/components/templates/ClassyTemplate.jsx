@@ -1,5 +1,6 @@
 import EditableField from '../editor/EditableField';
 import ResumePhotoSlot from './ResumePhotoSlot';
+import { injectCustomBlocks } from './CustomModules';
 
 /**
  * 经典居中版 —— 蓝色分区标题
@@ -16,6 +17,7 @@ const ClassyPreview = ({
     onUpdateExperience,
     onUpdateBullet,
     onUpdateEducation,
+    onUpdateCustom,
 }) => {
     const F = (field, placeholder, multiline = false) => onUpdateField
         ? <EditableField value={resume[field] ?? ''} onChange={(v) => onUpdateField(field, v)} placeholder={placeholder} multiline={multiline}
@@ -94,6 +96,7 @@ const ClassyPreview = ({
             </div>
         ),
     };
+    injectCustomBlocks(blocks, resume.customSections, onUpdateCustom);
 
     return (
         <div className="resume-card-classy">
