@@ -15,6 +15,26 @@ const LEVEL_META = {
   missing: { label: '未体现',   color: '#721c24', bg: '#f8d7da' },
 };
 
+/** 结果区可折叠模块：标题行(标题 + 摘要徽标 + 箭头)整行可点，展开/收起内容 */
+function AtsSection({ icon, title, meta, defaultOpen = true, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={`ats-sec${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="ats-sec-head"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <span className="ats-sec-title">{icon} {title}</span>
+        {meta != null && meta !== "" && <span className="ats-sec-meta">{meta}</span>}
+        <span className="ats-sec-arrow" aria-hidden="true">▸</span>
+      </button>
+      {open && <div className="ats-sec-body">{children}</div>}
+    </div>
+  );
+}
+
 export default function ATS() {
   const navigate = useNavigate();
   const [jobDesc, setJobDesc] = useState("");
@@ -346,8 +366,15 @@ export default function ATS() {
 
           {/* 增量1：逐条职责语义匹配 */}
           {semantic?.requirements && semantic.requirements.length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              <h4 style={{ fontSize: '18px', marginBottom: '12px' }}>📋 逐条职责语义匹配（增量分析）</h4>
+            <AtsSection
+              icon="📋"
+              title="逐条职责语义匹配"
+              meta={(() => {
+                const c = { full: 0, partial: 0, missing: 0 };
+                semantic.requirements.forEach((r) => { if (c[r.matchLevel] != null) c[r.matchLevel] += 1; });
+                return `${c.full} 完全 · ${c.partial} 部分 · ${c.missing} 未体现`;
+              })()}
+            >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {semantic.requirements.map((req, i) => {
                   const meta = LEVEL_META[req.matchLevel] || LEVEL_META.partial;
@@ -378,18 +405,27 @@ export default function ATS() {
                   );
                 })}
               </div>
-            </div>
+            </AtsSection>
           )}
 
           {/* 增量2：建议质量 verifier */}
           {semantic?.priorityActions && semantic.priorityActions.length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              <h4 style={{ fontSize: '18px', marginBottom: '4px' }}>✅ 建议质量独立校验（verifier）</h4>
-              <p style={{ fontSize: '13px', color: '#888', marginBottom: '12px' }}>
+            <AtsSection
+              icon="✅"
+              title="建议质量独立校验"
+              meta={(() => {
+                if (verifying) return '校验中…';
+                if (verification?.results?.length > 0) {
+                  const passed = verification.results.filter((r) => r.verified === true).length;
+                  return `${passed}/${verification.results.length} 通过`;
+                }
+                return '';
+              })()}
+            >
+              <p style={{ fontSize: '13px', color: '#888', margin: '0 0 12px' }}>
                 每条建议经独立校验：是否相关、是否具体可执行、是否诚实（不诱导编造经历）。
               </p>
-              {verifying && <p style={{ fontSize: '14px', color: '#666' }}>正在独立校验建议质量...</p>}
-              <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {semantic.priorityActions.map((action, i) => {
                   const v = verifiedMap[i];
                   const pass = v?.verified === true;
@@ -428,36 +464,42 @@ export default function ATS() {
                   校验小结：{verification.summary}
                 </p>
               )}
-            </div>
+            </AtsSection>
           )}
 
           {/* 基础层：命中 / 缺失关键词 */}
-          <div className="ats-metrics">
-            <div>
-              <strong style={{ fontSize: '16px', marginBottom: '8px', display: 'block' }}>✅ 已匹配关键词</strong>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {analysis.matchedKeywords?.length > 0 ? (
-                  analysis.matchedKeywords.map((keyword, i) => (
-                    <span key={i} style={{ padding: '4px 12px', background: '#d4edda', color: '#155724', borderRadius: '16px', fontSize: '14px' }}>{keyword}</span>
-                  ))
-                ) : (
-                  <p style={{ color: '#666' }}>暂无已匹配关键词</p>
-                )}
+          <AtsSection
+            icon="🔑"
+            title="关键词层匹配"
+            meta={`${analysis.matchedKeywords?.length || 0} 命中 · ${analysis.missingKeywords?.length || 0} 缺失`}
+          >
+            <div className="ats-metrics">
+              <div>
+                <strong style={{ fontSize: '15px', marginBottom: '8px', display: 'block' }}>✅ 已匹配关键词</strong>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {analysis.matchedKeywords?.length > 0 ? (
+                    analysis.matchedKeywords.map((keyword, i) => (
+                      <span key={i} style={{ padding: '4px 12px', background: '#d4edda', color: '#155724', borderRadius: '16px', fontSize: '14px' }}>{keyword}</span>
+                    ))
+                  ) : (
+                    <p style={{ color: '#666' }}>暂无已匹配关键词</p>
+                  )}
+                </div>
+              </div>
+              <div style={{ marginTop: '16px' }}>
+                <strong style={{ fontSize: '15px', marginBottom: '8px', display: 'block' }}>❌ 缺失关键词 / 能力</strong>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {analysis.missingKeywords?.length > 0 ? (
+                    analysis.missingKeywords.map((keyword, i) => (
+                      <span key={i} style={{ padding: '4px 12px', background: '#f8d7da', color: '#721c24', borderRadius: '16px', fontSize: '14px' }}>{keyword}</span>
+                    ))
+                  ) : (
+                    <p style={{ color: '#666' }}>所有关键词均已匹配！</p>
+                  )}
+                </div>
               </div>
             </div>
-            <div style={{ marginTop: '16px' }}>
-              <strong style={{ fontSize: '16px', marginBottom: '8px', display: 'block' }}>❌ 缺失关键词 / 能力</strong>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {analysis.missingKeywords?.length > 0 ? (
-                  analysis.missingKeywords.map((keyword, i) => (
-                    <span key={i} style={{ padding: '4px 12px', background: '#f8d7da', color: '#721c24', borderRadius: '16px', fontSize: '14px' }}>{keyword}</span>
-                  ))
-                ) : (
-                  <p style={{ color: '#666' }}>所有关键词均已匹配！</p>
-                )}
-              </div>
-            </div>
-          </div>
+          </AtsSection>
 
           {/* 入口：带着这份 JD 去模拟面试（演练闭环） */}
           <div style={{
