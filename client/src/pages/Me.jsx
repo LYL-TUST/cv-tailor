@@ -27,7 +27,7 @@ const TABS = [
 
 export default function Me() {
   return (
-    <section style={{ maxWidth: 980, margin: "0 auto", padding: "18px 24px 32px" }}>
+    <section style={{ maxWidth: 1240, margin: "0 auto", padding: "18px 32px 32px" }}>
       <PageHead
         kicker="账户"
         title="个人中心"
