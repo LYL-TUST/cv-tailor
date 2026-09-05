@@ -3,15 +3,25 @@
  *
  * 数据键：
  * - ats_history_v1:       [{ id, ts, jdTitle, jdPreview, score, categoryScores, missingKeywords, matchedKeywords, priorityActions, overallAssessment, verifySummary }]
- * - interview_history_v1: [{ id, ts, jobTitle, interviewType, records: [{ type, category, question, userAnswer, score, feedback, strengths, improvements, starCompliance, improvedAnswer }] }]
+ * - interview_history_v1: [{ id, ts, jobTitle, interviewType, records: [{ type, category, question, userAnswer, score, feedback, strengths, improvements, starCompliance, improvedAnswer, followUp, timeUp }] }]
  *
  * 设计原则（与隐私承诺一致）：
  * - 只存必要字段，不存完整 resumeData（体积与隐私双考虑）
  * - 单类上限 50 条，超出按 FIFO 淘汰，防止撑爆 localStorage
+ *
+ * 工作区草稿（JD 诊断/模拟面试的页面现场）由 draftStore.js 管理，
+ * 备份导出/导入/清空在本文件与 draftStore 联动。
  */
+import {
+  getDraftEnvelope, mergeDraftEnvelope, clearAllDrafts,
+} from "./draftStore";
+import {
+  listFavorites, writeFavorites, clearFavorites, FAVORITES_KEY,
+} from "./favoritesStore";
 
 const ATS_KEY = "ats_history_v1";
 const INTERVIEW_KEY = "interview_history_v1";
+const FAVORITES_LIMIT = 200;
 const MAX_PER_TYPE = 50;
 
 function uid() {
@@ -48,6 +58,8 @@ export function addAtsRecord(input) {
     ts: Date.now(),
     jdTitle: input.jdTitle || "",
     jdPreview: input.jdPreview || "",
+    resumeId: input.resumeId || "",
+    resumeName: input.resumeName || "",
     score,
     categoryScores: input.categoryScores || null,
     missingKeywords: input.missingKeywords || [],
@@ -74,14 +86,22 @@ export function clearAtsRecords() {
 
 /* ==================== 面试历史 ==================== */
 
-/** 保存一次面试会话（逐题作答 + AI 反馈一起入库） */
-export function saveInterviewSession({ jobTitle, interviewType, records }) {
+/** 保存一次面试会话（逐题作答 + AI 反馈一起入库）
+ *  context: { mode, jdTitle, jdPreview, resumeId, resumeName } 面试官资料包快照
+ */
+export function saveInterviewSession({ jobTitle, interviewType, records, context }) {
   const list = readList(INTERVIEW_KEY);
+  const ctx = context || {};
   const session = {
     id: uid(),
     ts: Date.now(),
     jobTitle: jobTitle || "未命名岗位",
     interviewType: interviewType || "mixed",
+    mode: ctx.mode || "title",
+    jdTitle: ctx.jdTitle || "",
+    jdPreview: ctx.jdPreview || "",
+    resumeId: ctx.resumeId || "",
+    resumeName: ctx.resumeName || "",
     questionCount: records?.length || 0,
     avgScore: computeAvgScore(records),
     records: (records || []).map((r) => ({
@@ -94,7 +114,13 @@ export function saveInterviewSession({ jobTitle, interviewType, records }) {
       strengths: r.strengths || [],
       improvements: r.improvements || [],
       starCompliance: r.starCompliance,
+      authenticityNote: r.authenticityNote || "",
       improvedAnswer: r.improvedAnswer || "",
+      // P2 真人面试循环:面试官追问 + 补答 + 是否超时(旧记录无此字段,渲染端判空兼容)
+      followUp: r.followUp && r.followUp.question
+        ? { question: r.followUp.question || "", angle: r.followUp.angle || "", answer: r.followUp.answer || "" }
+        : null,
+      timeUp: Boolean(r.timeUp),
     })),
   };
   writeList(INTERVIEW_KEY, [session, ...list].slice(0, MAX_PER_TYPE));
@@ -133,6 +159,9 @@ export function exportAllData() {
       resumeTheme: JSON.parse(localStorage.getItem("resumeTheme") || "null"),
       ats_history_v1: readList(ATS_KEY),
       interview_history_v1: readList(INTERVIEW_KEY),
+      favorites_v1: listFavorites(),
+      draft_ats_v1: getDraftEnvelope("ats"),
+      draft_interview_v1: getDraftEnvelope("interview"),
     },
   };
 }
@@ -170,10 +199,22 @@ export function importAllData(payload) {
   };
   mergeBy(ATS_KEY, d.ats_history_v1);
   mergeBy(INTERVIEW_KEY, d.interview_history_v1);
+
+  // 收藏夹:按 id 合并去重,保留最近 200 条
+  if (Array.isArray(d.favorites_v1) && d.favorites_v1.length > 0) {
+    const existing = listFavorites();
+    const byId = new Map(existing.map((f) => [f.id, f]));
+    d.favorites_v1.forEach((f) => byId.set(f.id, f));
+    writeFavorites(Array.from(byId.values()).slice(0, FAVORITES_LIMIT));
+  }
+
+  // 工作区草稿：按时间"较新覆盖"合并（见 draftStore）
+  mergeDraftEnvelope("ats", d.draft_ats_v1);
+  mergeDraftEnvelope("interview", d.draft_interview_v1);
   return true;
 }
 
-/** 清空全部数据（版本 + 历史 + 主题）——个人中心隐私管控 */
+/** 清空全部数据（版本 + 历史 + 主题 + 工作区草稿）——个人中心隐私管控 */
 export function clearAllLocalData() {
   localStorage.removeItem("resume_versions_v1");
   localStorage.removeItem("resume_active_v1");
@@ -181,6 +222,8 @@ export function clearAllLocalData() {
   localStorage.removeItem("resumeTheme");
   localStorage.removeItem(ATS_KEY);
   localStorage.removeItem(INTERVIEW_KEY);
+  clearFavorites();
+  clearAllDrafts();
 }
 
 export const ATS_HISTORY_KEY = ATS_KEY;

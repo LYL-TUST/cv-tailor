@@ -19,6 +19,16 @@
  *  - ats_verify           建议质量校验     { total, passed, flagged }
  *  - pdf_export           PDF 导出         { status: success|fail }
  *  - txt_export           纯文本导出       { status: success|fail }
+ *  - interview_voice_start 语音作答开始     { }
+ *  - interview_voice_fill  语音转写填入回答 { chars, target: first|followup }   (P1 语音作答 / P2 补答)
+ *  - interview_voice_edited 语音填入后被改  { }          (编辑率指标)
+ *  - interview_voice_error 语音识别出错     { code }     (no-speech/network/not-allowed…)
+ *  - interview_tts_play   面试官语音读题/念追问 { kind: question|followup, auto, chars } (P2)
+ *  - interview_tts_stop   停止面试官朗读     { }                                (P2)
+ *  - interview_timer_expire 每题限时到       { limit }                          (P2 限时作答)
+ *  - interview_followup_generate 面试官追问生成成功 { ctx }                     (P2 追问)
+ *  - interview_followup_answered 用户回应追问并评估 { }                         (P2 追问)
+ *  - interview_followup_skipped 用户跳过追问直接评估 { }                        (P2 追问)
  */
 
 const EVENTS_KEY = "arb_analytics_events_v1";

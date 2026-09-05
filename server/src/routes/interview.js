@@ -3,22 +3,131 @@ import { openai, MODEL_NAME } from "../services/openaiClient.js";
 
 const router = Router();
 
+// 上下文输入护栏(与 ATS 的 F5 超长输入同源策略)
+const MAX_JD = 4000;      // 职位描述最大字符
+const MAX_BRIEF = 6000;   // 简历摘要最大字符
+
+function clip(text, max) {
+  if (!text) return "";
+  const s = String(text).trim();
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
+
+/** 拼装「面试官掌握的资料」注入段:简历(可选)与 JD(可选)的通用规则 */
+function buildContextRules({ jobDescription, resumeBrief }) {
+  const parts = [];
+  if (jobDescription) {
+    parts.push(
+      "面试官已阅读该岗位的职位描述(JD),题目应紧扣 JD 中的职责与任职要求," +
+      "考察求职者是否具备岗位所需的核心能力。"
+    );
+  }
+  if (resumeBrief) {
+    parts.push(
+      "面试官已阅读求职者的简历(摘要附后),题目应贴合其真实经历与背景:" +
+      "① 简历中有相关经历时,优先让求职者以自身真实经历作答;" +
+      "② 简历未体现的能力不要默认其具备,可出假设情境题引导其补足;" +
+      "③ 绝不诱导求职者编造简历中不存在的经历、项目或技能。"
+    );
+  }
+  return parts.join("\n");
+}
+
 // Generate interview questions
 router.post("/generate", async (req, res) => {
     try {
-        const { jobTitle, jobDescription, interviewType = "mixed", count = 5 } = req.body;
+        const {
+            jobTitle,
+            jobDescription,
+            resumeBrief,
+            interviewType = "mixed",
+            count = 5,
+            difficulty: difficultyRaw,
+        } = req.body;
+
+        // 难度档位(默认循序渐进):easy | medium | hard | progressive(旧客户端不带则渐进)
+        const difficulty = ["easy", "medium", "hard", "progressive"].includes(difficultyRaw)
+            ? difficultyRaw
+            : "progressive";
+        const difficultyLabel = {
+            easy: "简单(常规水平,重在建立表达信心)",
+            medium: "中等(常规深度加适度挑战)",
+            hard: "困难(高复杂度情境与深入追问)",
+            progressive: "循序渐进(整组由易到难递进,前面的题热身、后面的题挑战)",
+        }[difficulty];
+        const diffRule = `难度档位:${difficultyLabel}
+出题要求:${
+    difficulty === "progressive"
+        ? "整组题目难度从 easy 递进到 hard,并严格按此顺序排列题目"
+        : `每题难度均为「${difficulty}」对应档位`
+};各题 difficulty 字段一律小写(easy|medium|hard)。`;
 
         if (!jobTitle) {
             return res.status(400).json({ error: "请提供目标职位" });
         }
 
+        const jd = clip(jobDescription, MAX_JD);
+        const brief = clip(resumeBrief, MAX_BRIEF);
+        const ctxRules = buildContextRules({ jobDescription: jd, resumeBrief: brief });
+        const n = Math.min(Math.max(Number(count) || 5, 1), 10);
+
         let prompt = "";
 
-        if (interviewType === "behavioral") {
+        if (interviewType === "resume-drill") {
+            // 简历深挖模式:面试官逐条盘问简历经历(题源 = 简历,不依赖 JD)
+            if (!brief) {
+                return res.status(400).json({ error: "简历深挖模式需要先选择一份简历(简历摘要为空)" });
+            }
             prompt = `
-请为「${jobTitle}」岗位生成 ${count} 道行为面试题。
+你是一位专业但严格的面试官,正在对求职者做「简历深挖」式面试。你已经完整读过求职者的简历,面试目的是验证简历的真实性与含金量,并帮求职者暴露经不起追问的薄弱点。
 
-${jobDescription ? `职位描述：${jobDescription}` : ""}
+${diffRule}
+难度语义:简单=浅层澄清;中等=深入细节;困难=挑战性假设与压力情境。
+
+职位名称:${jobTitle}
+${jd ? `(该求职者投递了「${jobTitle}」,可适当结合 JD 判断哪些经历最有价值)\n职位描述:${jd}` : ""}
+
+求职者简历摘要:
+${brief}
+
+请针对简历中的真实内容生成 ${n} 道「经历深挖题」,要求:
+- 从经历、项目、技能声明、量化数字中选取最有追问价值的点,每道题都锚定一段具体经历或一项声明
+- 提问角度贴近真实追问:当时为什么这么做?遇到的最大困难与如何解决?怎么衡量成功、数据从哪来?你的个人贡献 vs 团队贡献?如果重来会改什么?有没有被否决的方案?
+- 可少量穿插动机与自我认知题(如离职原因、职业规划、为什么觉得自己适合此岗),但主体必须是经历深挖
+- 题目要具体到能看出你读了简历,禁止出与该简历无关的通用题
+- 红线:不得暗示或诱导求职者编造简历中不存在的经历、项目、技能或数据
+
+以 JSON 输出,格式如下:
+{
+  "questions": [
+    {
+      "question": "题目内容(中文)",
+      "type": "behavioral|technical",
+      "category": "深挖维度(如:项目细节、量化成果、团队协作、技能验证、动机)",
+      "answerFramework": "STAR"(行为类题目填 STAR,否则空字符串),
+      "fromExperience": "对应经历标识(如:公司-职位),取自简历",
+      "drillHint": "面试官后续可能追问的方向提示(一句,可空)",
+      "difficulty": "easy|medium|hard(依据追问锋芒与情境复杂度给出,一律小写)",
+      "referenceTips": {
+        "summary": "本题考察点(一句话)",
+        "keyPoints": ["答题要点,2-4条,中文"],
+        "sample": "简短示范:基于简历真实经历示意,禁止虚构简历中不存在的经历/项目/数据;简历信息不足时只写 STAR 框架,不编造细节(可空)"
+      }
+    }
+  ]
+}
+`;
+        } else if (interviewType === "behavioral") {
+            prompt = `
+请为「${jobTitle}」岗位生成 ${n} 道行为面试题。
+
+${diffRule}
+难度语义:简单=常见单一情境;中等=含取舍或冲突;困难=多角色矛盾或时间压力,追问更深。
+
+${jd ? `职位描述：${jd}` : ""}
+${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
+
+${ctxRules}
 
 要求：
 - 题目适合用 STAR 结构（情境、任务、行动、结果）回答
@@ -33,22 +142,36 @@ ${jobDescription ? `职位描述：${jobDescription}` : ""}
       "question": "题目内容（中文）",
       "type": "behavioral",
       "category": "能力维度（如：领导力）",
-      "answerFramework": "STAR"
+      "answerFramework": "STAR",
+      "fromExperience": "",
+      "drillHint": "",
+      "difficulty": "easy|medium|hard(按情境复杂度给出,一律小写)",
+      "referenceTips": {
+        "summary": "本题考察点(一句话)",
+        "keyPoints": ["答题要点,2-4条,中文"],
+        "sample": "简短示范:基于简历真实经历示意,禁止虚构简历中不存在的经历/项目/数据;简历信息不足时只写 STAR 框架,不编造细节(可空)"
+      }
     }
   ]
 }
 `;
         } else if (interviewType === "technical") {
             prompt = `
-请为「${jobTitle}」岗位生成 ${count} 道专业技术面试题。
+请为「${jobTitle}」岗位生成 ${n} 道专业技术面试题。
 
-${jobDescription ? `职位描述：${jobDescription}` : ""}
+${diffRule}
+难度语义:简单=基础概念与常见场景;中等=需要深入分析;困难=复杂系统/边界情形/综合运用。
+
+${jd ? `职位描述：${jd}` : ""}
+${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
+
+${ctxRules}
 
 要求：
 - 包含岗位相关的专业问题
 - 覆盖理论知识与实际场景
 - 难度从基础到进阶
-- 紧扣该岗位的技术栈
+- 紧扣该岗位的技术栈（若有 JD 则以 JD 为准；若简历声明了相关技能，可出验证题考察其真实掌握程度）
 - 题目与解析用中文
 
 以 JSON 输出，格式如下：
@@ -58,7 +181,14 @@ ${jobDescription ? `职位描述：${jobDescription}` : ""}
       "question": "题目内容（中文）",
       "type": "technical",
       "category": "分类（如：系统设计、编码、架构等）",
-      "difficulty": "Easy|Medium|Hard"
+      "difficulty": "easy|medium|hard(一律小写)",
+      "fromExperience": "",
+      "drillHint": "",
+      "referenceTips": {
+        "summary": "本题考察点(一句话)",
+        "keyPoints": ["答题要点,2-4条,中文"],
+        "sample": "解题思路或简短示范(技术题给思路与关键结论即可,可空)"
+      }
     }
   ]
 }
@@ -66,9 +196,15 @@ ${jobDescription ? `职位描述：${jobDescription}` : ""}
         } else {
             // Mixed
             prompt = `
-请为「${jobTitle}」岗位生成 ${count} 道面试题（行为面与技术面混合）。
+请为「${jobTitle}」岗位生成 ${n} 道面试题（行为面与技术面混合）。
 
-${jobDescription ? `职位描述：${jobDescription}` : ""}
+${diffRule}
+难度语义:行为题按情境复杂度,技术题按知识深度,两种题型各自的难度都要符合档位。
+
+${jd ? `职位描述：${jd}` : ""}
+${brief ? `简历摘要(面试官已阅读):\n${brief}` : ""}
+
+${ctxRules}
 
 要求：
 - 混合行为面（可用 STAR 回答）与技术面题目
@@ -83,7 +219,15 @@ ${jobDescription ? `职位描述：${jobDescription}` : ""}
       "question": "题目内容（中文）",
       "type": "behavioral|technical",
       "category": "分类",
-      "answerFramework": "STAR"（如为行为题）
+      "answerFramework": "STAR"（如为行为题）,
+      "fromExperience": "",
+      "drillHint": "",
+      "difficulty": "easy|medium|hard(按题型各自的难度语义给出,一律小写)",
+      "referenceTips": {
+        "summary": "本题考察点(一句话)",
+        "keyPoints": ["答题要点,2-4条,中文"],
+        "sample": "简短示范:行为题基于简历真实经历示意(禁止虚构);技术题给解题思路与关键结论(可空)"
+      }
     }
   ]
 }
@@ -104,39 +248,131 @@ ${jobDescription ? `职位描述：${jobDescription}` : ""}
     }
 });
 
+// Generate interviewer follow-up question (P2 真人面试循环:基于首答生成 1 条追问)
+router.post("/follow-up", async (req, res) => {
+    try {
+        const {
+            question,
+            userAnswer,
+            questionType = "behavioral",
+            jobTitle = "",
+            jobDescription,
+            resumeBrief,
+        } = req.body;
+
+        if (!question || !userAnswer) {
+            return res.status(400).json({ error: "请提供面试题与候选人的回答" });
+        }
+
+        const jd = clip(jobDescription, MAX_JD);
+        const brief = clip(resumeBrief, MAX_BRIEF);
+        const isResumeDrill = questionType === "resume-drill";
+        const contextBlock = [
+            jobTitle ? `目标职位：${jobTitle}` : "",
+            jd ? `职位描述：\n${jd}` : "",
+            brief ? `求职者简历摘要（面试官已阅读）：\n${brief}` : "",
+        ].filter(Boolean).join("\n");
+
+        const prompt = `
+你是一位专业但严格的面试官，正在做模拟面试。候选人刚刚回答了你的问题，请基于其回答生成 1 条追问。
+
+${contextBlock ? `【面试背景】\n${contextBlock}\n` : ""}
+【面试题】${question}
+【候选人回答】${userAnswer}
+题目类型：${isResumeDrill ? "简历深挖（行为/情境为主）" : questionType}
+
+追问要求：
+- 追问必须针对候选人的回答内容：深挖其中的细节、数据来源、个人贡献，或挑战其中含糊、单薄、前后矛盾之处
+- 若提供了简历背景，可结合简历核查回答与真实经历是否一致，追问可指向需要澄清的点；绝不诱导候选人编造简历中不存在的经历、项目、数据
+- 只问一个问题，具体、锋利但专业礼貌，中文，尽量不超过 50 字
+- 不重复原问题，不脱离候选人的回答与已有背景凭空发问
+
+以 JSON 输出：
+{
+  "followUp": "追问内容（中文，一个问题）",
+  "angle": "追问角度的极短标签（如：数据来源、个人贡献、方案取舍、真实性核实、结果衡量）"
+}
+`;
+
+        const response = await openai.chat.completions.create({
+            model: MODEL_NAME,
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" },
+        });
+
+        const data = JSON.parse(response.choices[0].message.content);
+        if (!data.followUp) {
+            return res.status(500).json({ error: "追问生成失败" });
+        }
+        res.json({ followUp: data.followUp, angle: data.angle || "" });
+    } catch (err) {
+        console.error("Follow-up generation error:", err);
+        res.status(500).json({ error: "追问生成失败" });
+    }
+});
+
 // Evaluate interview answer
 router.post("/evaluate", async (req, res) => {
     try {
-        const { question, userAnswer, questionType = "behavioral" } = req.body;
+        const {
+            question,
+            userAnswer,
+            questionType = "behavioral",
+            jobTitle = "",
+            jobDescription,
+            resumeBrief,
+            followUpQuestion = "",
+            followUpAnswer = "",
+        } = req.body;
 
         if (!question || !userAnswer) {
             return res.status(400).json({ error: "请提供面试题与你的回答" });
         }
 
+        const jd = clip(jobDescription, MAX_JD);
+        const brief = clip(resumeBrief, MAX_BRIEF);
+        const isResumeDrill = questionType === "resume-drill";
+        const contextBlock = [
+            jobTitle ? `目标职位：${jobTitle}` : "",
+            jd ? `职位描述：\n${jd}` : "",
+            brief ? `求职者简历摘要（面试官已阅读）：\n${brief}` : "",
+        ].filter(Boolean).join("\n");
+
+        // P2 追问块:有追问时综合首答与补答评估
+        const hasFollowUp = Boolean(String(followUpQuestion || "").trim());
+        const followUpBlock = hasFollowUp ? `
+【面试官追问】${String(followUpQuestion).trim()}
+【求职者补充回答】${String(followUpAnswer || "").trim() || "（未回应追问）"}
+` : "";
+        const followUpRule = hasFollowUp ? `
+- 本次包含一轮面试官追问：请综合首答与补充回答评估，反馈中体现「追问应对」的质量（追问是否回应到位、补充是否弥补了首答的薄弱点）
+${String(followUpAnswer || "").trim() ? "" : "- 求职者未回应追问：请在改进建议中提醒其练习「被追问时如何接话补答」"}
+` : "";
+
         const prompt = `
-你是一位资深面试教练。请评估以下面试回答，并用中文给出反馈。
+你是一位资深面试教练兼该岗位的面试官。请评估以下面试回答，并用中文给出反馈。
 
-面试题：${question}
-求职者回答：${userAnswer}
-题目类型：${questionType}
+${contextBlock ? `【面试背景】\n${contextBlock}\n` : ""}
+【面试题】${question}
+【求职者回答】${userAnswer}${followUpBlock}
+题目类型：${isResumeDrill ? "简历深挖（行为/情境为主）" : questionType}
 
-请以 JSON 输出详细评估：
+评分时请严格对照面试背景：
+- 切题度：回答是否回应了题目要求；若有 JD，是否体现 JD 所需能力
+- 真实性：若有简历背景，判断回答是否基于其简历中的真实经历；若求职者提到简历中没有的经历/项目/数据，应在反馈中提示补充说明或核实（绝不建议其编造）
+- 结构与表达清晰度、是否给出具体事例与细节、是否提及结果与影响
+- 行为题是否遵循 STAR 结构；技术题回答是否准确${followUpRule}
+
+以 JSON 输出详细评估：
 {
   "score": 8.5,
-  "feedback": "整体评估总结（中文）",
+  "feedback": "整体评估总结（中文，结合 JD 与简历背景给出针对性建议）",
   "strengths": ["优点 1", "优点 2"],
   "improvements": ["改进建议 1", "改进建议 2"],
   "starCompliance": true/false（如为行为题，是否遵循 STAR 结构）,
-  "improvedAnswer": "可选：一版更优的回答示例（中文）"
+  "authenticityNote": "可选：对回答真实性的核查提示（有简历背景时给出；与简历一致/存疑/空泛无细节等）",
+  "improvedAnswer": "可选：一版更优的回答示例（中文，须基于其简历已有经历，不得虚构）"
 }
-
-评估维度：
-- 结构与表达清晰度
-- 是否给出具体事例与细节
-- 是否提及结果与影响
-- 是否切题
-- 行为题是否遵循 STAR 结构
-- 技术题回答是否准确
 `;
 
         const response = await openai.chat.completions.create({

@@ -94,16 +94,6 @@ export async function polishText({ text, kind = 'bullet' }) {
   });
 }
 
-/**
- * Generate a cover letter from resume facts + optional job description
- */
-export async function generateCoverLetter({ fullName, title, company, jd, summary, skills, experienceBrief }) {
-  return fetchAPI('/api/ai/cover-letter', {
-    method: 'POST',
-    body: JSON.stringify({ fullName, title, company, jd, summary, skills, experienceBrief }),
-  });
-}
-
 // ==================== ATS Analyzer APIs ====================
 
 /**
@@ -170,22 +160,36 @@ export async function getTemplate(id) {
 export async function generateInterviewQuestions({ 
   jobTitle, 
   jobDescription, 
+  resumeBrief,
   interviewType = 'mixed', 
-  count = 5 
+  count = 5,
+  difficulty = 'progressive',
 }) {
   return fetchAPI('/api/interview/generate', {
     method: 'POST',
-    body: JSON.stringify({ jobTitle, jobDescription, interviewType, count }),
+    body: JSON.stringify({ jobTitle, jobDescription, resumeBrief, interviewType, count, difficulty }),
   });
 }
 
 /**
  * Evaluate interview answer
+ * P2 追问：followUpQuestion / followUpAnswer 可选——有追问时评估综合首答与补答
  */
-export async function evaluateAnswer({ question, userAnswer, questionType = 'behavioral' }) {
+export async function evaluateAnswer({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '', followUpQuestion = '', followUpAnswer = '' }) {
   return fetchAPI('/api/interview/evaluate', {
     method: 'POST',
-    body: JSON.stringify({ question, userAnswer, questionType }),
+    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief, followUpQuestion, followUpAnswer }),
+  });
+}
+
+/**
+ * Generate interviewer follow-up question (P2 真人面试循环)
+ * 基于候选人对某题的首答，生成 1 条追问
+ */
+export async function generateFollowUp({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '' }) {
+  return fetchAPI('/api/interview/follow-up', {
+    method: 'POST',
+    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief }),
   });
 }
 
@@ -345,6 +349,7 @@ export default {
   // Interview
   generateInterviewQuestions,
   evaluateAnswer,
+  generateFollowUp,
   getInterviewTips,
   
   // PDF Export

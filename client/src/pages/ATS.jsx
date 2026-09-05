@@ -1,8 +1,12 @@
 import PageHead from "../components/PageHead";
+import ResumePicker from "../components/ResumePicker";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import * as api from "../utils/api";
 import { track } from "../utils/analytics";
 import { addAtsRecord } from "../utils/historyStore";
+import { getActiveVersion, listVersions } from "../utils/resumeStore";
+import { loadDraft, saveDraft, clearDraft } from "../utils/draftStore";
 
 // 语义匹配级别的展示配置
 const LEVEL_META = {
@@ -12,6 +16,7 @@ const LEVEL_META = {
 };
 
 export default function ATS() {
+  const navigate = useNavigate();
   const [jobDesc, setJobDesc] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -20,18 +25,111 @@ export default function ATS() {
   const [verification, setVerification] = useState(null); // 增量2：建议 verifier
   const [error, setError] = useState(null);
   const [resumeData, setResumeData] = useState(null);
+  const [resumeVersion, setResumeVersion] = useState(null); // 本次诊断基于的简历版本
+  const [restoredTip, setRestoredTip] = useState(false);    // 恢复草稿后的一次性提示
 
-  // Load resume data from localStorage on mount
+  const hasWork = !!(jobDesc.trim() || analysis || semantic || verification);
+
+  // Load resume data on mount：优先恢复上次未完成的诊断草稿（静默），否则用激活版本
   useEffect(() => {
     try {
+      const versions = listVersions();
+      const active = getActiveVersion();
+      const useVersion = (v) => {
+        if (v && v.data && !v.data.empty) {
+          setResumeVersion(v);
+          setResumeData(v.data);
+        }
+      };
+
+      // 1) 有草稿 → 恢复现场（JD 输入 + 诊断结果 + 当时所用简历版本）
+      const draft = loadDraft("ats");
+      if (draft && (draft.jobDesc || draft.analysis)) {
+        if (draft.jobDesc) setJobDesc(draft.jobDesc);
+        const target = versions.find((x) => x.id === draft.resumeId) || active;
+        useVersion(target);
+        if (draft.analysis) setAnalysis(draft.analysis);
+        if (draft.semantic) setSemantic(draft.semantic);
+        if (draft.verification) setVerification(draft.verification);
+        if (draft.jobDesc || draft.analysis) setRestoredTip(true);
+        return;
+      }
+
+      // 2) 无草稿 → 优先当前激活版本，其次旧的单版本字段
+      useVersion(active);
       const saved = localStorage.getItem('resumeData');
       if (saved) {
-        setResumeData(JSON.parse(saved));
+        const data = JSON.parse(saved);
+        if (!data.empty && !resumeData) setResumeData(data);
       }
     } catch (err) {
       console.error('读取本地简历数据失败:', err);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 防抖自动保存工作区：输入与任一结果变化后 600ms 落盘；全空则清除草稿
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!hasWork) {
+        clearDraft("ats");
+        return;
+      }
+      saveDraft("ats", {
+        resumeId: resumeVersion?.id || "",
+        resumeName: resumeVersion?.name || "",
+        jobDesc,
+        analysis,
+        semantic,
+        verification,
+      });
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobDesc, analysis, semantic, verification, resumeVersion, hasWork]);
+
+  /** 清空本页工作区，开始一次新诊断（个人中心历史不受影响） */
+  const clearWorkspace = () => {
+    if (hasWork && !window.confirm("清空本页的 JD 与诊断结果，重新开始？已保存的个人中心历史不受影响。")) return;
+    setJobDesc("");
+    setAnalysis(null);
+    setSemantic(null);
+    setVerification(null);
+    setError(null);
+    setRestoredTip(false);
+    const active = getActiveVersion();
+    if (active && active.data && !active.data.empty) {
+      setResumeVersion(active);
+      setResumeData(active.data);
+    } else {
+      setResumeVersion(null);
+      setResumeData(null);
+    }
+    clearDraft("ats");
+  };
+
+  // 用户在顶部切换「本次诊断基于哪份简历」：只影响本次，不写穿激活版本
+  const handleVersionChange = (v) => {
+    setResumeVersion(v);
+    if (v && v.data && !v.data.empty) {
+      setResumeData(v.data);
+      setError(null);
+    } else {
+      setResumeData(null);
+      setError('该版本尚未填写内容，请先在「编辑器」中完善后再做诊断。');
+    }
+  };
+
+  /** 结果区入口：带着当前 JD 与简历去模拟面试（面试页自动预填） */
+  const goInterviewWithJd = () => {
+    navigate('/interview', {
+      state: {
+        jd: jobDesc,
+        resumeId: resumeVersion?.id || "",
+        resumeName: resumeVersion?.name || "",
+      },
+    });
+  };
 
   const analyze = async () => {
     if (!jobDesc.trim()) {
@@ -101,6 +199,8 @@ export default function ATS() {
         const record = addAtsRecord({
           jdTitle: jdFirstLine.slice(0, 40),
           jdPreview: (jobDesc || "").trim().slice(0, 80),
+          resumeId: resumeVersion?.id || "",
+          resumeName: resumeVersion?.name || "",
           score,
           categoryScores: basicResult.categoryScores || null,
           missingKeywords: Array.isArray(basicResult.missingKeywords) ? basicResult.missingKeywords
@@ -149,9 +249,33 @@ export default function ATS() {
         sub="粘贴目标职位描述，AI 将做两层分析：关键词层匹配 + 语义级逐条职责诊断，并对每条改进建议做独立质量校验。"
       />
 
+      {/* 恢复提示（一次性、可关闭） */}
+      {restoredTip && (
+        <div className="notice notice-ok" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <span>🔄 已恢复上次离开时的内容 —— 本页现场会自动保存在本机，随时可以放心切换页面。</span>
+          <button className="btn-ghost" style={{ fontSize: '12px', padding: '2px 10px', flexShrink: 0 }} onClick={() => setRestoredTip(false)}>知道了</button>
+        </div>
+      )}
+
+      {/* 工作区工具行 */}
+      {hasWork && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
+          <button className="btn-ghost" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={clearWorkspace}>
+            🗑 清空本页，重新开始
+          </button>
+        </div>
+      )}
+
+      {/* 匹配对象：本次诊断基于哪份简历（多版本下显式声明，消除歧义） */}
+      {resumeVersion && (
+        <div className="ats-context" style={{ marginBottom: '16px' }}>
+          <ResumePicker version={resumeVersion} onChange={handleVersionChange} label="本次诊断基于的简历" />
+        </div>
+      )}
+
       {!resumeData && (
         <div className="notice notice-warn" style={{ marginBottom: '16px' }}>
-          ⚠️ 未找到简历数据，请先在「编辑器」中创建简历。
+          ⚠️ 未找到可用的简历数据，请先在「编辑器」中创建或完善简历。
         </div>
       )}
 
@@ -333,6 +457,20 @@ export default function ATS() {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* 入口：带着这份 JD 去模拟面试（演练闭环） */}
+          <div style={{
+            marginTop: '20px', padding: '14px 16px', background: '#f0f7ff',
+            border: '1px solid #bfdbfe', borderRadius: '8px',
+            display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: '14px', color: '#1e40af', lineHeight: '1.6', flex: 1 }}>
+              💡 诊断出的缺口,最好在面试前演练一遍 —— 带着这份 JD 和简历「{resumeVersion?.name || '当前简历'}」去模拟面试,让 AI 面试官按 JD 提问并深挖你的经历。
+            </span>
+            <button className="btn btn-primary" onClick={goInterviewWithJd}>
+              🎤 去模拟面试 →
+            </button>
           </div>
         </div>
       )}
