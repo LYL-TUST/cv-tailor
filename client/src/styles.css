@@ -3099,6 +3099,81 @@ p.editable-field:hover {
   margin-bottom: 12px; padding: 8px 12px; font-size: 13px;
   background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; color: #1e40af;
 }
+
+/* ===== 模拟面试 · 双态布局(设置态左右分栏 / 练习态主侧结构) ===== */
+.iv-setup-grid {
+  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 20px; align-items: start;
+}
+.iv-setup-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.iv-setup-cap { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); display: flex; align-items: baseline; gap: 8px; }
+.iv-setup-cap span { font-size: 12px; font-weight: 400; color: #94a3b8; }
+.iv-setup-col-rules { background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.iv-setup-col .iv-generate { width: 100%; align-self: stretch; }
+.iv-setup-summary {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%;
+  background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+}
+.iv-setup-summary-job { font-size: 14px; font-weight: 600; color: var(--text); }
+.iv-setup-summary-meta { font-size: 12px; color: #64748b; }
+.iv-setup-summary-toggle { margin-left: auto; font-size: 12px; color: #2563eb; flex-shrink: 0; }
+
+.iv-practice-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 16px; align-items: start;
+}
+.iv-practice-main { min-width: 0; }
+.iv-practice-side {
+  display: flex; flex-direction: column; gap: 12px;
+  position: sticky; top: 16px;
+}
+.iv-side-card {
+  background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; box-shadow: var(--shadow);
+}
+.iv-side-cap { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.iv-side-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; border-radius: 8px; padding: 7px 8px;
+  cursor: pointer; text-align: left; font-size: 13px; color: var(--text);
+}
+.iv-side-item:hover { background: #f1f5f9; }
+.iv-side-item.cur { background: #eff6ff; color: #1e40af; font-weight: 600; }
+.iv-side-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iv-side-item-score { font-size: 12px; color: #64748b; flex-shrink: 0; }
+.iv-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #e2e8f0; }
+.iv-dot.good { background: #16a34a; }
+.iv-dot.mid { background: #f59e0b; }
+.iv-dot.bad { background: #ef4444; }
+.iv-dot.done { background: #94a3b8; }
+.iv-dot.cur { background: #2563eb; }
+.iv-side-clock { display: block; font-size: 24px; color: var(--text); }
+.iv-side-clock.danger { color: #dc2626; }
+.iv-side-nav { display: flex; gap: 8px; }
+.iv-side-nav .btn-ghost { flex: 1; font-size: 12px; padding: 6px 8px; }
+.iv-side-note { margin: 8px 0 0; font-size: 12px; color: #94a3b8; }
+
+/* 评估卡 Tab 化 */
+.iv-eval-tabs {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #f1f5f9;
+}
+.iv-eval-tab {
+  background: none; border: 1px solid #e2e8f0; border-radius: 999px;
+  padding: 4px 14px; font-size: 13px; color: #475569; cursor: pointer;
+}
+.iv-eval-tab:hover { border-color: #94a3b8; }
+.iv-eval-tab.active { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; font-weight: 600; }
+
+/* savebar 吸顶:滚到页面任意位置都能复盘/保存 */
+.iv-savebar { position: sticky; top: 12px; z-index: 10; }
+
+/* 移动端降级:两栏叠回单列,侧栏落到主栏之后 */
+@media (max-width: 960px) {
+  .iv-setup-grid { grid-template-columns: 1fr; }
+  .iv-practice-grid { grid-template-columns: 1fr; }
+  .iv-practice-side { position: static; }
+}
 .iv-ctx-badge b { font-weight: 600; }
 .iv-badge-chip {
   background: #2563eb; color: #fff; font-size: 11px; font-weight: 600;

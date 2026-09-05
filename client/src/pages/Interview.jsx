@@ -174,6 +174,11 @@ export default function Interview() {
   // ===== 能力画像 → 弱项针对性再练:非空时 /generate 只围绕这些维度定向出题 =====
   const [focusCategories, setFocusCategories] = useState(null); // string[] | null
 
+  // ===== 双态布局:设置区展开/收起(练习中默认收起为摘要条) =====
+  const [setupOpen, setSetupOpen] = useState(true);
+  // ===== 评估卡 Tab 化:feedback | consistency | followup | reference =====
+  const [evalTab, setEvalTab] = useState("feedback");
+
   // ===== P2 真人面试循环:限时 / TTS 读题 / 追问 =====
   const [timeLimitSec, setTimeLimitSec] = useState(0); // 每题限时(0=不限时,默认关)
   const [timeLeft, setTimeLeft] = useState(null); // 当前题剩余秒数(null=未启动)
@@ -313,6 +318,7 @@ export default function Interview() {
       setDifficultyMode('progressive');
       setQuestions([q]);
       setCurrentQuestionIndex(0);
+      setSetupOpen(false); // 收藏再练直接进入练习态
       setUserAnswer("");
       setEvaluation(null);
       setSessionRecords([]);
@@ -379,6 +385,7 @@ export default function Interview() {
         setResumeVersion(active);
       }
       if (draft.questions) setQuestions(draft.questions);
+      if (draft.questions?.length > 0) setSetupOpen(false); // 恢复到练习现场:设置区收起
       const total = (draft.questions || []).length;
       const idx = typeof draft.currentQuestionIndex === "number" ? draft.currentQuestionIndex : 0;
       setCurrentQuestionIndex(total > 0 ? Math.min(Math.max(idx, 0), total - 1) : 0);
@@ -460,6 +467,8 @@ export default function Interview() {
     setCurrentQuestionIndex(0);
     setUserAnswer("");
     setEvaluation(null);
+    setEvalTab("feedback");
+    setSetupOpen(true); // 清空后回到设置态
     setRevealedRef(false);
     setError(null);
     setSessionRecords([]);
@@ -516,6 +525,8 @@ export default function Interview() {
     setReportError(null);
     setConsistency(null);
     setConsistencyLoading(false);
+    setEvalTab("feedback");
+    setSetupOpen(false); // 出题后进入练习态:设置区收起为摘要条
 
     try {
       const resumeBrief = needResume ? briefOfVersion(resumeVersion) : "";
@@ -744,6 +755,7 @@ export default function Interview() {
     setUserAnswer("");
     setEvaluation(null);
     setConsistency(null);
+    setEvalTab("feedback");
     setRevealedRef(false);
     resetConversationState();
     // 换题自动读题:手势栈内同步调用,浏览器允许开口;失败则静默(题卡仍有「面试官读题」按钮兜底)
@@ -755,6 +767,22 @@ export default function Interview() {
 
   const nextQuestion = () => goQuestion(1);
   const previousQuestion = () => goQuestion(-1);
+
+  /** 侧栏会话仪表盘:点击任意题直接跳转(与翻页同等语义,含自动读题) */
+  const jumpToQuestion = (i) => {
+    if (i === currentQuestionIndex || i < 0 || i >= questions.length) return;
+    setCurrentQuestionIndex(i);
+    setUserAnswer("");
+    setEvaluation(null);
+    setConsistency(null);
+    setEvalTab("feedback");
+    setRevealedRef(false);
+    resetConversationState();
+    const q = questions[i];
+    if (q?.question && tts.speak(`第 ${i + 1} 题。${q.question}`)) {
+      track("interview_tts_play", { kind: "question", auto: true, chars: String(q.question).length });
+    }
+  };
 
   /** 面试官读题 / 停止(题卡按钮兜底:网络生成首题、收藏再练等无手势场景) */
   const toggleReadQuestion = () => {
@@ -882,6 +910,8 @@ export default function Interview() {
 
   const currentQuestion = questions[currentQuestionIndex];
   const refTips = currentQuestion?.referenceTips || null;
+  // 当前题的历史记录(回看已答过的题时,追问应对 Tab 的数据源)
+  const curRecord = sessionRecords.find((r) => r.question === currentQuestion?.question) || null;
 
   /** 语音作答条(P1/P2):按 target 决定识别结果填入首答还是追问补答 */
   const renderVoicePanel = (target) => (
@@ -967,8 +997,13 @@ export default function Interview() {
         </div>
       )}
 
-      {/* ========== 设置区：面试官资料包 ========== */}
+      {/* ========== 设置区:双态布局 —— 展开为左右分栏,练习中收起为摘要条 ========== */}
       <div className="iv-setup">
+        {setupOpen ? (
+          <div className="iv-setup-grid">
+            {/* 左栏 · 面试官资料包:他读了什么 */}
+            <div className="iv-setup-col">
+              <p className="iv-setup-cap">🎙️ 面试官资料包 <span>他读了什么</span></p>
         <div className="iv-field">
           <label htmlFor="iv-jobtitle">目标职位 <em>*</em></label>
           <input
@@ -1050,7 +1085,11 @@ export default function Interview() {
             />
           </div>
         )}
+            </div>
 
+            {/* 右栏 · 考试规则:怎么考你 */}
+            <div className="iv-setup-col iv-setup-col-rules">
+              <p className="iv-setup-cap">⚙️ 考试规则 <span>怎么考你</span></p>
         <div className="iv-field">
           <label htmlFor="iv-type">题目类型</label>
           <select
@@ -1139,15 +1178,32 @@ export default function Interview() {
         >
           {loading ? '⏳ 正在生成题目…' : '🎤 开始面试'}
         </button>
+            </div>
+          </div>
+        ) : (
+          /* 练习态摘要条:点击可展开设置区重新出题 */
+          <button type="button" className="iv-setup-summary" onClick={() => setSetupOpen(true)}>
+            <span className="iv-setup-summary-job">🎤 {jobTitle.trim() || "未命名岗位"}</span>
+            <span className="iv-setup-summary-meta">
+              {TYPE_OPTIONS.find((o) => o.value === interviewType)?.label.split('（')[0] || interviewType}
+              {' · '}{questionCount} 题
+              {' · '}{interviewType === 'resume-drill' ? '深挖难度' : DIFF_OPTIONS.find((o) => o.value === difficultyMode)?.label.split('（')[0] || difficultyMode}
+              {' · '}{STYLE_META[interviewerStyle]?.label || '大厂标准'}
+              {withJd ? ' · JD' : ''}{useResume ? ' · 简历' : ''}
+            </span>
+            <span className="iv-setup-summary-toggle">调整设置 ▾</span>
+          </button>
+        )}
       </div>
 
       {error && (
         <div className="notice notice-err" style={{ marginTop: '14px' }}>{error}</div>
       )}
 
-      {/* ========== 题卡区 ========== */}
+      {/* ========== 练习态:主栏(题卡+作答) + 侧栏(会话仪表盘) ========== */}
       {questions.length > 0 && currentQuestion && (
-        <div>
+        <div className="iv-practice-grid">
+        <div className="iv-practice-main">
           {/* 保存到个人中心 */}
           <div className="iv-savebar">
             <span>
@@ -1432,88 +1488,172 @@ export default function Interview() {
             </div>
           )}
 
-          {/* Evaluation Results */}
+          {/* Evaluation Results(Tab 化:反馈/简历对照/追问应对/参考答案) */}
           {evaluation && (
             <div className="iv-eval">
-              <h4 className="iv-eval-head">
-                📊 评估得分：
-                <strong style={{ color: evaluation.score >= 7 ? '#4CAF50' : evaluation.score >= 5 ? '#FF9800' : '#f44336' }}>
-                  {evaluation.score}/10
-                </strong>
-              </h4>
+              <div className="iv-eval-tabs" role="tablist" aria-label="评估结果分组">
+                <button type="button" role="tab" aria-selected={evalTab === 'feedback'} className={`iv-eval-tab${evalTab === 'feedback' ? ' active' : ''}`} onClick={() => setEvalTab('feedback')}>
+                  📊 反馈{typeof evaluation.score === 'number' ? ` · ${evaluation.score}` : ''}
+                </button>
+                {ctxRef.current?.resumeBrief && (
+                  <button type="button" role="tab" aria-selected={evalTab === 'consistency'} className={`iv-eval-tab${evalTab === 'consistency' ? ' active' : ''}`} onClick={() => setEvalTab('consistency')}>
+                    🔍 简历对照{consistency ? ` · ${(CONS_VERDICT[consistency.verdict] || CONS_VERDICT.minor).text}` : ''}
+                  </button>
+                )}
+                {(followUp?.question || curRecord?.followUp) && (
+                  <button type="button" role="tab" aria-selected={evalTab === 'followup'} className={`iv-eval-tab${evalTab === 'followup' ? ' active' : ''}`} onClick={() => setEvalTab('followup')}>
+                    🗣 追问应对
+                  </button>
+                )}
+                {evaluation.improvedAnswer && (
+                  <button type="button" role="tab" aria-selected={evalTab === 'reference'} className={`iv-eval-tab${evalTab === 'reference' ? ' active' : ''}`} onClick={() => setEvalTab('reference')}>
+                    🌟 参考答案
+                  </button>
+                )}
+              </div>
 
-              {evaluation.feedback && (
-                <p className="iv-eval-feedback"><strong>整体反馈：</strong>{evaluation.feedback}</p>
+              {evalTab === 'feedback' && (
+                <>
+                  {evaluation.feedback && (
+                    <p className="iv-eval-feedback"><strong>整体反馈：</strong>{evaluation.feedback}</p>
+                  )}
+
+                  {evaluation.authenticityNote && (
+                    <div className="iv-eval-auth">🧾 真实性核查：{evaluation.authenticityNote}</div>
+                  )}
+
+                  {evaluation.strengths?.length > 0 && (
+                    <div className="iv-eval-sec">
+                      <strong className="iv-eval-ok">✅ 回答亮点：</strong>
+                      <ul>{evaluation.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                    </div>
+                  )}
+
+                  {evaluation.improvements?.length > 0 && (
+                    <div className="iv-eval-sec">
+                      <strong className="iv-eval-impr">💡 待改进之处：</strong>
+                      <ul>{evaluation.improvements.map((im, i) => <li key={i}>{im}</li>)}</ul>
+                    </div>
+                  )}
+
+                  {evaluation.starCompliance !== undefined && (
+                    <div className={`iv-eval-star ${evaluation.starCompliance ? 'ok' : 'warn'}`}>
+                      <strong>STAR 结构符合度：</strong>{' '}
+                      {evaluation.starCompliance ? '✅ 符合' : '⚠️ 可再加强'}
+                    </div>
+                  )}
+                </>
               )}
 
-              {evaluation.authenticityNote && (
-                <div className="iv-eval-auth">🧾 真实性核查：{evaluation.authenticityNote}</div>
+              {evalTab === 'consistency' && ctxRef.current?.resumeBrief && (
+                <>
+                  <div className="iv-cons-actions">
+                    <button className="btn-ghost" onClick={runConsistencyCheck} disabled={consistencyLoading}>
+                      {consistencyLoading ? '⏳ 正在对照简历…' : consistency ? '🔄 重新对照' : '🔍 与简历对照矛盾点'}
+                    </button>
+                    <span className="iv-answer-side">把你的回答与简历原文逐点比对：提到但简历没有 / 声明了但说不清 / 明显矛盾</span>
+                  </div>
+                  {consistency && (
+                    <div className={`iv-consistency v-${consistency.verdict}`}>
+                      <div className="iv-cons-head">
+                        <strong>{(CONS_VERDICT[consistency.verdict] || CONS_VERDICT.minor).icon} {(CONS_VERDICT[consistency.verdict] || CONS_VERDICT.minor).text}</strong>
+                        {consistency.summary && <span className="iv-cons-summary">{consistency.summary}</span>}
+                      </div>
+                      {(consistency.items || []).map((it, i) => {
+                        const kind = CONS_KIND[it.kind] || CONS_KIND.unclear;
+                        return (
+                          <div key={i} className="iv-cons-item">
+                            <div className="iv-cons-item-head">
+                              <span className="iv-cons-kind" style={{ color: kind.fg, background: kind.bg }}>{kind.label}</span>
+                              <b>{it.point}</b>
+                            </div>
+                            {it.detail && <p className="iv-cons-detail">{it.detail}</p>}
+                            {it.advice && <p className="iv-cons-advice">→ {it.advice}</p>}
+                          </div>
+                        );
+                      })}
+                      {(consistency.items || []).length === 0 && (
+                        <p className="iv-cons-detail">没有发现明显矛盾点 —— 回答与简历内容吻合，继续保持。</p>
+                      )}
+                      <p className="iv-cons-note">护栏：对照只提示「核实或补充」，绝不建议编造；简历没写全的经历可以补进简历，但面试里说的必须是真的。</p>
+                    </div>
+                  )}
+                </>
               )}
 
-              {evaluation.strengths?.length > 0 && (
-                <div className="iv-eval-sec">
-                  <strong className="iv-eval-ok">✅ 回答亮点：</strong>
-                  <ul>{evaluation.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
-                </div>
-              )}
+              {evalTab === 'followup' && (() => {
+                const fu = followUp?.question ? followUp : curRecord?.followUp;
+                if (!fu) return null;
+                return (
+                  <div className="iv-eval-sec">
+                    <div className="iv-followup">
+                      <p style={{ margin: 0, fontWeight: 600 }}>🗣 面试官追问{fu.angle ? `（${fu.angle}）` : ""}：{fu.question}</p>
+                      {fu.answer ? (
+                        <p style={{ margin: '6px 0 0' }}><strong>我的补答：</strong>{fu.answer}</p>
+                      ) : (
+                        <p style={{ margin: '6px 0 0', color: '#94a3b8' }}>（未回应追问——真实面试里接不住追问很扣分，建议补练「被追问时如何接话」）</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
-              {evaluation.improvements?.length > 0 && (
-                <div className="iv-eval-sec">
-                  <strong className="iv-eval-impr">💡 待改进之处：</strong>
-                  <ul>{evaluation.improvements.map((im, i) => <li key={i}>{im}</li>)}</ul>
-                </div>
-              )}
-
-              {evaluation.starCompliance !== undefined && (
-                <div className={`iv-eval-star ${evaluation.starCompliance ? 'ok' : 'warn'}`}>
-                  <strong>STAR 结构符合度：</strong>{' '}
-                  {evaluation.starCompliance ? '✅ 符合' : '⚠️ 可再加强'}
-                </div>
-              )}
-
-              {evaluation.improvedAnswer && (
+              {evalTab === 'reference' && evaluation.improvedAnswer && (
                 <div className="iv-eval-sec">
                   <strong>🌟 参考答案示例：</strong>
                   <p className="iv-eval-ref">{evaluation.improvedAnswer}</p>
                 </div>
               )}
-
-              {/* 回答-简历矛盾点对照(需简历背景,按需触发) */}
-              {ctxRef.current?.resumeBrief && (
-                <div className="iv-cons-actions">
-                  <button className="btn-ghost" onClick={runConsistencyCheck} disabled={consistencyLoading}>
-                    {consistencyLoading ? '⏳ 正在对照简历…' : consistency ? '🔄 重新对照' : '🔍 与简历对照矛盾点'}
-                  </button>
-                  <span className="iv-answer-side">把你的回答与简历原文逐点比对：提到但简历没有 / 声明了但说不清 / 明显矛盾</span>
-                </div>
-              )}
-              {consistency && (
-                <div className={`iv-consistency v-${consistency.verdict}`}>
-                  <div className="iv-cons-head">
-                    <strong>{(CONS_VERDICT[consistency.verdict] || CONS_VERDICT.minor).icon} {(CONS_VERDICT[consistency.verdict] || CONS_VERDICT.minor).text}</strong>
-                    {consistency.summary && <span className="iv-cons-summary">{consistency.summary}</span>}
-                  </div>
-                  {(consistency.items || []).map((it, i) => {
-                    const kind = CONS_KIND[it.kind] || CONS_KIND.unclear;
-                    return (
-                      <div key={i} className="iv-cons-item">
-                        <div className="iv-cons-item-head">
-                          <span className="iv-cons-kind" style={{ color: kind.fg, background: kind.bg }}>{kind.label}</span>
-                          <b>{it.point}</b>
-                        </div>
-                        {it.detail && <p className="iv-cons-detail">{it.detail}</p>}
-                        {it.advice && <p className="iv-cons-advice">→ {it.advice}</p>}
-                      </div>
-                    );
-                  })}
-                  {(consistency.items || []).length === 0 && (
-                    <p className="iv-cons-detail">没有发现明显矛盾点 —— 回答与简历内容吻合，继续保持。</p>
-                  )}
-                  <p className="iv-cons-note">护栏：对照只提示「核实或补充」，绝不建议编造；简历没写全的经历可以补进简历，但面试里说的必须是真的。</p>
-                </div>
-              )}
             </div>
           )}
+        </div>
+
+        {/* 侧栏 · 会话仪表盘:全部题目进度 + 跳题 + 倒计时 */}
+        <aside className="iv-practice-side">
+          <div className="iv-side-card">
+            <p className="iv-side-cap">会话进度</p>
+            {questions.map((q, i) => {
+              const rec = sessionRecords.find((r) => r.question === q.question);
+              const isCur = i === currentQuestionIndex;
+              let dotCls = "todo";
+              let right = isCur ? "作答中" : "—";
+              if (rec) {
+                right = typeof rec.score === "number" ? rec.score.toFixed(1) : "已答";
+                dotCls = typeof rec.score === "number"
+                  ? (rec.score >= 7 ? "good" : rec.score >= 5 ? "mid" : "bad")
+                  : "done";
+                if (isCur && typeof rec.score !== "number") right = "作答中";
+              }
+              const catLabel = q.category
+                || (q.type === 'technical' ? '技术面' : q.type === 'behavioral' ? '行为面' : q.type === 'resume-drill' ? '深挖' : '题目');
+              return (
+                <button key={i} type="button" className={`iv-side-item${isCur ? " cur" : ""}`} onClick={() => jumpToQuestion(i)} aria-current={isCur ? "step" : undefined}>
+                  <span className={`iv-dot ${dotCls}`} />
+                  <span className="iv-side-item-label">Q{i + 1} {catLabel.length > 6 ? `${catLabel.slice(0, 6)}…` : catLabel}</span>
+                  <span className="iv-side-item-score">{right}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {timeLimitSec > 0 && (
+            <div className="iv-side-card iv-side-timer">
+              <p className="iv-side-cap">作答倒计时</p>
+              <b className={`iv-side-clock${timeLeft != null && timeLeft <= 15 ? " danger" : ""}`}>
+                {timerLabel || TIME_LIMIT_LABEL(timeLimitSec)}
+              </b>
+            </div>
+          )}
+
+          <div className="iv-side-card">
+            <p className="iv-side-cap">题目导航</p>
+            <div className="iv-side-nav">
+              <button className="btn-ghost" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>← 上一题</button>
+              <button className="btn-ghost" onClick={nextQuestion} disabled={currentQuestionIndex === questions.length - 1}>下一题 →</button>
+            </div>
+            <p className="iv-side-note">已答 {sessionRecords.length}/{questions.length} 题{sessionSaved ? " · ✅ 已保存" : ""}</p>
+          </div>
+        </aside>
         </div>
       )}
 
