@@ -225,45 +225,4 @@ router.post("/polish-text", async (req, res) => {
   }
 });
 
-// Cover letter 生成 —— 基于简历真实信息 + 可选 JD,不编造经历
-router.post("/cover-letter", async (req, res) => {
-  try {
-    const { fullName, title, company, jd, summary, skills, experienceBrief } = req.body || {};
-
-    const experienceText = Array.isArray(experienceBrief) && experienceBrief.length
-      ? experienceBrief.map((e, i) => `${i + 1}. ${e}`).join("\n")
-      : "未提供";
-
-    const prompt = `
-你是一位求职顾问。请为求职者写一封正式的中文求职信(Cover Letter)。
-
-求职者:${fullName || "求职者"}
-目标职位:${title || ""}
-目标公司:${company || ""}
-个人简介:${summary || "未提供"}
-核心技能:${skills || "未提供"}
-真实经历(供引用,禁止超出此范围编造):
-${experienceText}
-目标岗位 JD(如有,用于针对性回应):
-${jd || "未提供"}
-
-要求:
-- 300~450 字;结构:称呼 → 应聘意向与动机 → 用 1-2 段点出与职位最相关的经历/能力(可引用上面的真实经历,但不得虚构公司、项目或量化数字)→ 收尾致谢
-- 称呼默认「尊敬的招聘负责人:」,如公司名明确可写作「尊敬的${company || ""}招聘团队:」
-- 语气专业、真诚、不空洞
-- 用中文输出;正文用换行分段落,不要标题与落款日期
-`;
-    const response = await openai.chat.completions.create({
-      model: MODEL_NAME,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.5,
-    });
-
-    res.json({ letter: response.choices[0].message.content.trim() });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "求职信生成失败。" });
-  }
-});
-
 export default router;

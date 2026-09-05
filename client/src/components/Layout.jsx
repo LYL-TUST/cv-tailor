@@ -7,7 +7,7 @@ import { NavLink, useLocation } from "react-router-dom";
  * 结构:
  *   工作台(置顶独立入口,总览/欢迎页)
  *   开始创作 — 导入简历 / 简历编辑器 / 模板主题
- *   打磨优化 — JD 诊断 / 模拟面试 / 导出下载
+ *   打磨优化 — JD 诊断 / 模拟面试(导出已内嵌编辑器顶栏)
  *   账户     — 个人中心 / 数据看板(本地隐私)
  * 移动端:侧栏收起为抽屉,由顶栏汉堡按钮唤出。
  */
@@ -30,8 +30,6 @@ const NAV_GROUPS = [
     items: [
       { to: "/ats", icon: "🎯", label: "JD 诊断" },
       { to: "/interview", icon: "🎤", label: "模拟面试" },
-      { to: "/cover-letter", icon: "✉️", label: "求职信" },
-      { to: "/download", icon: "📄", label: "导出下载" },
     ],
   },
   {

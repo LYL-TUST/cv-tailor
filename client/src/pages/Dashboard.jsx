@@ -20,12 +20,11 @@ const QUICK_GROUPS = [
     ],
   },
   {
-    label: "打磨与投递",
+    label: "打磨与面试",
     accent: "#0d9488",
     items: [
       { to: "/ats", icon: "🎯", title: "JD 匹配诊断", desc: "对照目标岗位找差距，关键词+语义分析", hint: "对症下药" },
       { to: "/interview", icon: "🎤", title: "模拟面试", desc: "AI 按岗位出题并逐题反馈回答质量", hint: "临场不慌" },
-      { to: "/download", icon: "📄", title: "导出投递", desc: "PDF / Word / 纯文本，所见即所得", hint: "去投递吧" },
     ],
   },
 ];
