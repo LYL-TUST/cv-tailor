@@ -53,3 +53,8 @@ client/build*/
 
 # Local verification screenshots
 shots/
+
+# Private job-hunting notes (never publish to the repo)
+docs/AI-PM-面试问答手册-CVTailor.md
+docs/resume-combo-ellie-cvtailor.md
+docs/resume-project-entry.md
