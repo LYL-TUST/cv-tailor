@@ -1745,6 +1745,175 @@ body {
   border-top: 1px solid rgba(15, 23, 42, 0.06);
 }
 
+/* ---- ATS 双栏诊断工作台:左输入(sticky) / 右结果仪表盘 ---- */
+.ats-workbench {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (min-width: 960px) {
+  .ats-workbench {
+    grid-template-columns: 360px minmax(0, 1fr);
+    gap: 22px;
+  }
+  .ats-input-panel {
+    position: sticky;
+    top: 16px;
+  }
+}
+
+.ats-input-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ats-panel {
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.ats-panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* 分层进度列表:idle 灰 / running 橙脉冲 / done 绿 / failed 红 */
+.ats-stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.ats-stage-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ats-stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+
+.ats-stage-item.done .ats-stage-dot { background: #4CAF50; }
+.ats-stage-item.running .ats-stage-dot { background: #FF9800; animation: atsPulse 1.1s ease-in-out infinite; }
+.ats-stage-item.failed .ats-stage-dot { background: #f44336; }
+
+@keyframes atsPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* 得分 hero:环形分数 + 维度 chip + 语义总评 */
+.ats-hero {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.ats-score-ring {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  flex-shrink: 0;
+}
+
+.ats-score-ring svg {
+  display: block;
+  transform: rotate(-90deg);
+}
+
+.ats-score-ring-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.ats-cat-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ats-cat-chip {
+  background: #f5f7fa;
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.ats-cat-chip strong {
+  display: block;
+  font-size: 16px;
+  margin-top: 1px;
+}
+
+/* 结果分层 Tab */
+.ats-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+}
+
+.ats-tab {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.ats-tab:hover {
+  background: #f1f5f9;
+}
+
+.ats-tab.active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+
+.ats-tab-meta {
+  font-weight: 500;
+  opacity: 0.72;
+  margin-left: 6px;
+  font-size: 12px;
+}
+
 /* ---- Editor 增强(新视觉体系) ---- */
 .editor {
   align-items: flex-start;
@@ -3177,6 +3346,23 @@ p.editable-field:hover {
 .iv-setup-summary-meta { font-size: 12px; color: #64748b; }
 .iv-setup-summary-toggle { margin-left: auto; font-size: 12px; color: #2563eb; flex-shrink: 0; }
 
+/* 出题加载态:设置区收起后、题目返回前的过程反馈 */
+.iv-gen-loading {
+  margin-top: 20px; padding: 36px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: #f5f3ff; border: 1px dashed #c4b5fd; border-radius: 12px;
+  text-align: center;
+}
+.iv-gen-spinner {
+  width: 34px; height: 34px; margin-bottom: 6px;
+  border: 3px solid #ddd6fe; border-top-color: #8b5cf6; border-radius: 50%;
+  animation: iv-gen-spin 0.9s linear infinite;
+}
+@keyframes iv-gen-spin { to { transform: rotate(360deg); } }
+.iv-gen-title { margin: 0; font-size: 15px; font-weight: 600; color: #4c1d95; }
+.iv-gen-sub { margin: 0; font-size: 13px; color: #6d28d9; }
+.iv-gen-hint { margin: 4px 0 0; font-size: 12px; color: #94a3b8; }
+
 .iv-practice-grid {
   display: grid; grid-template-columns: minmax(0, 1fr) 250px;
   gap: 16px; align-items: start;
@@ -3335,6 +3521,14 @@ p.editable-field:hover {
   background: #fff;
 }
 .iv-followup-answer:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15); }
+.iv-followup-history { display: flex; flex-direction: column; gap: 8px; }
+.iv-followup-round {
+  padding: 10px 12px; border-radius: 8px;
+  background: #ede9fe; border: 1px solid #ddd6fe;
+}
+.iv-followup-round-q { margin: 0; font-size: 13px; font-weight: 600; color: #4c1d95; line-height: 1.6; }
+.iv-followup-round-a { margin: 4px 0 0; font-size: 13px; color: #334155; line-height: 1.6; }
+.iv-followup-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* ===== 模拟面试:整场复盘报告(本地统计 + AI 归纳) ===== */
 .iv-report {

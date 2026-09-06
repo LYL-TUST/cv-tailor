@@ -1,12 +1,11 @@
 import PageHead from "../components/PageHead";
 import ResumePicker from "../components/ResumePicker";
-import CollapsibleSection from "../components/CollapsibleSection";
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import * as api from "../utils/api";
 import { track } from "../utils/analytics";
 import { addAtsRecord } from "../utils/historyStore";
-import { getActiveVersion, listVersions } from "../utils/resumeStore";
+import { getActiveVersion, listVersions, updateVersionData } from "../utils/resumeStore";
 import { loadDraft, saveDraft, clearDraft } from "../utils/draftStore";
 
 // 语义匹配级别的展示配置
@@ -16,7 +15,22 @@ const LEVEL_META = {
   missing: { label: '未体现',   color: '#721c24', bg: '#f8d7da' },
 };
 
-/** 结果区可折叠模块:共享组件 CollapsibleSection(标题行 + 摘要徽标 + 箭头) */
+/** 文本归一化:去空白/标点/大小写,用于证据原文 → bullet 的宽松定位 */
+const normText = (s) => String(s || '').toLowerCase().replace(/[\s,，。;；:：''""()（）·、.!！?？\-—]+/g, '');/** 语义诊断的 evidence → 简历 bullet 坐标:归一化后双向包含即认为命中;找不到返回 null */
+function findBulletByEvidence(resumeData, evidence) {
+  if (!resumeData || !evidence) return null;
+  const ev = normText(evidence);
+  if (ev.length < 4) return null;
+  const exps = Array.isArray(resumeData.experience) ? resumeData.experience : [];
+  for (let ei = 0; ei < exps.length; ei++) {
+    const bullets = exps[ei]?.bullets || [];
+    for (let bi = 0; bi < bullets.length; bi++) {
+      const b = normText(bullets[bi]);
+      if (b && (b.includes(ev) || ev.includes(b))) return { expIndex: ei, bulletIndex: bi };
+    }
+  }
+  return null;
+}
 
 export default function ATS() {
   const navigate = useNavigate();
@@ -30,6 +44,10 @@ export default function ATS() {
   const [resumeData, setResumeData] = useState(null);
   const [resumeVersion, setResumeVersion] = useState(null); // 本次诊断基于的简历版本
   const [restoredTip, setRestoredTip] = useState(false);    // 恢复草稿后的一次性提示
+  const [stage, setStage] = useState({ basic: 'idle', semantic: 'idle' }); // 两层分析执行状态:idle|running|done|failed
+  const [rewriteModal, setRewriteModal] = useState(null); // 改写模态:{ req, target, exp, bullet, rewritten, busy, error }
+  const [appliedTip, setAppliedTip] = useState(false);    // 改写写回成功后的一次性提示
+  const [resultTab, setResultTab] = useState('requirements'); // 结果分层 Tab:requirements|actions|keywords
 
   const hasWork = !!(jobDesc.trim() || analysis || semantic || verification);
 
@@ -149,31 +167,62 @@ export default function ATS() {
     setAnalysis(null);
     setSemantic(null);
     setVerification(null);
+    setAppliedTip(false);
+    setStage({ basic: 'running', semantic: 'running' });
 
-    try {
-      // 并行调用：基础关键词分析 + 语义级匹配诊断
-      const [basicResult, semanticResult] = await Promise.all([
-        api.analyzeATS({ resumeData, jobDescription: jobDesc }),
-        api.semanticMatch({ resumeData, jobDescription: jobDesc }),
-      ]);
+    // 分阶段呈现:两个请求独立 resolve,谁先回来谁先上屏,不再等最慢的
+    const basicPromise = api.analyzeATS({ resumeData, jobDescription: jobDesc })
+      .then((basicResult) => {
+        const score = basicResult.atsScore ?? basicResult.overallScore ?? basicResult.score ?? 0;
+        setAnalysis({ ...basicResult, displayScore: score });
+        setStage((s) => ({ ...s, basic: 'done' }));
+        track("ats_analyze", { score });
+        return basicResult;
+      })
+      .catch((err) => {
+        setStage((s) => ({ ...s, basic: 'failed' }));
+        throw err;
+      });
 
-      const score = basicResult.atsScore ?? basicResult.overallScore ?? basicResult.score ?? 0;
-      setAnalysis({ ...basicResult, displayScore: score });
-      setSemantic(semanticResult);
-      track("ats_analyze", { score });
+    const semanticPromise = api.semanticMatch({ resumeData, jobDescription: jobDesc })
+      .then((semanticResult) => {
+        setSemantic(semanticResult);
+        setStage((s) => ({ ...s, semantic: 'done' }));
+        return semanticResult;
+      })
+      .catch((err) => {
+        setStage((s) => ({ ...s, semantic: 'failed' }));
+        throw err;
+      });
 
-      // 自动对语义匹配给出的建议做质量校验（增量2）
-      const suggestionsToVerify = (semanticResult.priorityActions || []).filter(Boolean);
-      if (suggestionsToVerify.length > 0) {
+    const settled = await Promise.allSettled([basicPromise, semanticPromise]);
+    const basicResult = settled[0].status === 'fulfilled' ? settled[0].value : null;
+    const semanticResult = settled[1].status === 'fulfilled' ? settled[1].value : null;
+    setAnalyzing(false);
+
+    if (!basicResult && !semanticResult) {
+      const reason = settled.find((x) => x.status === 'rejected')?.reason;
+      track("ats_analyze_fail", { reason: String(reason?.message || reason || '').slice(0, 120) });
+      setError(`分析失败: ${reason?.message || reason || '未知错误'}`);
+      return;
+    }
+    if (!basicResult) {
+      setError('关键词层分析失败(语义层结果正常),可稍后重新诊断补齐。');
+    }
+
+    // 建议质量校验:后台执行,不阻塞结果展示(「校验中…」状态已在卡片上呈现)
+    const suggestionsToVerify = (semanticResult?.priorityActions || []).filter(Boolean);
+    if (suggestionsToVerify.length > 0) {
+      (async () => {
         try {
           setVerifying(true);
-          const missingKw = Array.isArray(basicResult.missingKeywords)
-            ? basicResult.missingKeywords
-            : (semanticResult.requirements || [])
-                .filter(r => r.matchLevel === 'missing')
-                .map(r => r.requirement);
+          // verifier 聚焦「必须项」缺失:bonus 加分项不作为补强重点
+          const missingKw = Array.isArray(basicResult?.missingKeywordTiers) && basicResult.missingKeywordTiers.length > 0
+            ? basicResult.missingKeywordTiers.filter((x) => x.tier !== 'bonus').map((x) => x.term)
+            : (basicResult?.missingKeywords)
+              || (semanticResult?.requirements || []).filter((r) => r.matchLevel === 'missing').map((r) => r.requirement);
           const verifyResult = await api.verifySuggestions({
-            resumeText: JSON.stringify(resumeData),
+            resumeData,
             jobDescription: jobDesc,
             suggestions: suggestionsToVerify,
             missingKeywords: missingKw,
@@ -194,9 +243,11 @@ export default function ATS() {
         } finally {
           setVerifying(false);
         }
-      }
+      })();
+    }
 
-      // 自动保存到历史记录（个人中心可回看，含趋势数据）
+    // 自动保存到历史记录(基础层成功才记,避免失败轮污染分数趋势;verifier 后台跑,summary 先留空)
+    if (basicResult) {
       try {
         const jdFirstLine = (jobDesc || "").split("\n").map((l) => l.trim()).find((l) => l.length > 0) || "";
         const record = addAtsRecord({
@@ -204,24 +255,73 @@ export default function ATS() {
           jdPreview: (jobDesc || "").trim().slice(0, 80),
           resumeId: resumeVersion?.id || "",
           resumeName: resumeVersion?.name || "",
-          score,
+          score: basicResult.displayScore,
           categoryScores: basicResult.categoryScores || null,
           missingKeywords: Array.isArray(basicResult.missingKeywords) ? basicResult.missingKeywords
-            : (semanticResult.requirements || []).filter((r) => r.matchLevel === 'missing').map((r) => r.requirement),
+            : (semanticResult?.requirements || []).filter((r) => r.matchLevel === 'missing').map((r) => r.requirement),
           matchedKeywords: basicResult.matchedKeywords || [],
           priorityActions: semanticResult?.priorityActions || [],
           overallAssessment: semanticResult?.overallAssessment || "",
-          verifySummary: verification?.summary || "",
+          verifySummary: "",
         });
-        track("ats_history_save", { score: record?.score ?? score });
+        track("ats_history_save", { score: record?.score ?? basicResult.displayScore });
       } catch (saveErr) {
         console.error('保存 ATS 历史失败:', saveErr);
       }
+    }
+  };
+
+  /** 打开改写模态:req 为语义诊断条目,target 为 evidence 定位到的 bullet 坐标 */
+  const openRewrite = (req, target) => {
+    const exp = resumeData?.experience?.[target.expIndex];
+    const bullet = exp?.bullets?.[target.bulletIndex] || "";
+    if (!bullet.trim()) return;
+    setRewriteModal({ req, target, exp, bullet, rewritten: '', busy: false, error: null });
+    track("ats_rewrite_open", { matchLevel: req.matchLevel });
+  };
+
+  /** 调 AI 护栏改写:只重写措辞,不新增事实 */
+  const runRewrite = async () => {
+    const rm = rewriteModal;
+    if (!rm || rm.busy) return;
+    setRewriteModal({ ...rm, busy: true, error: null });
+    try {
+      const startedAt = Date.now();
+      const r = await api.rewriteForJd({
+        bullet: rm.bullet,
+        requirement: rm.req.requirement,
+        suggestion: rm.req.suggestion,
+        jobDescription: jobDesc,
+      });
+      setRewriteModal((prev) => ({ ...prev, rewritten: r.rewritten || '', busy: false }));
+      track("ats_rewrite_generate", { ms: Date.now() - startedAt });
     } catch (err) {
-      track("ats_analyze_fail", { reason: String(err.message || err).slice(0, 120) });
-      setError(`分析失败: ${err.message}`);
-    } finally {
-      setAnalyzing(false);
+      setRewriteModal((prev) => ({ ...prev, busy: false, error: `改写失败: ${err.message}` }));
+      track("ats_rewrite_fail", { reason: String(err.message || err).slice(0, 120) });
+    }
+  };
+
+  /** 应用改写:写回该简历版本的对应 bullet(resumeStore 定向更新),本地状态同步 */
+  const applyRewrite = () => {
+    const rm = rewriteModal;
+    if (!rm || !rm.rewritten) return;
+    const updated = updateVersionData(resumeVersion?.id, (data) => {
+      const exps = Array.isArray(data.experience) ? [...data.experience] : [];
+      if (exps[rm.target.expIndex]) {
+        const bullets = [...(exps[rm.target.expIndex].bullets || [])];
+        bullets[rm.target.bulletIndex] = rm.rewritten;
+        exps[rm.target.expIndex] = { ...exps[rm.target.expIndex], bullets };
+      }
+      return { ...data, experience: exps };
+    });
+    setRewriteModal(null);
+    if (updated) {
+      setResumeData(updated.data);
+      setResumeVersion((v) => (v ? { ...v, data: updated.data } : v));
+      setAppliedTip(true);
+      track("ats_rewrite_apply", {});
+    } else {
+      setError('写回简历失败:未找到对应简历版本,请重试。');
     }
   };
 
@@ -243,13 +343,25 @@ export default function ATS() {
     verification.results.forEach((r) => { verifiedMap[r.index] = r; });
   }
 
+  // 结果 Tab:仅展示有数据的层;当前 Tab 无数据时自动回落到第一个可用层
+  const tabsAvailable = [];
+  if (semantic?.requirements?.length > 0) tabsAvailable.push('requirements');
+  if (semantic?.priorityActions?.length > 0) tabsAvailable.push('actions');
+  if (analysis) tabsAvailable.push('keywords');
+  const effectiveTab = tabsAvailable.includes(resultTab) ? resultTab : (tabsAvailable[0] || 'requirements');
+  const actionsMeta = verifying
+    ? '校验中…'
+    : (verification?.results?.length > 0
+      ? `${verification.results.filter((r) => r.verified === true).length}/${verification.results.length} 通过`
+      : `${semantic?.priorityActions?.length || 0} 条`);
+
   return (
     <section>
       <PageHead
         kicker="打磨优化"
         title="JD 匹配诊断"
         icon="🎯"
-        sub="粘贴目标职位描述，AI 将做两层分析：关键词层匹配 + 语义级逐条职责诊断，并对每条改进建议做独立质量校验。"
+        sub="左侧粘贴 JD,右侧实时呈现:关键词层 + 语义逐条诊断 + 建议质量校验,发现缺口可直接一键改写。"
       />
 
       {/* 恢复提示（一次性、可关闭） */}
@@ -260,19 +372,14 @@ export default function ATS() {
         </div>
       )}
 
-      {/* 工作区工具行 */}
-      {hasWork && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
-          <button className="btn-ghost" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={clearWorkspace}>
-            🗑 清空本页，重新开始
-          </button>
-        </div>
-      )}
-
-      {/* 匹配对象：本次诊断基于哪份简历（多版本下显式声明，消除歧义） */}
-      {resumeVersion && (
-        <div className="ats-context" style={{ marginBottom: '16px' }}>
-          <ResumePicker version={resumeVersion} onChange={handleVersionChange} label="本次诊断基于的简历" />
+      {/* 改写写回提示(一次性、可关闭) */}
+      {appliedTip && (
+        <div className="notice notice-ok" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span>✏️ 改写已写回简历「{resumeVersion?.name || '当前简历'}」——可去编辑器查看,或重新诊断验证效果。</span>
+          <span style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+            <button className="btn-ghost" style={{ fontSize: '12px', padding: '2px 10px' }} onClick={() => navigate('/editor')}>去编辑器 →</button>
+            <button className="btn-ghost" style={{ fontSize: '12px', padding: '2px 10px' }} onClick={() => setAppliedTip(false)}>知道了</button>
+          </span>
         </div>
       )}
 
@@ -285,129 +392,196 @@ export default function ATS() {
         </div>
       )}
 
-      <div className="ats-box">
-        <div className="ats-box-head">
-          <span>📋 职位描述（JD）</span>
-          <span className="ats-box-hint">{jobDesc.trim() ? `${jobDesc.trim().length} 字` : "粘贴完整 JD 效果更准"}</span>
-        </div>
-        <textarea
-          className="ats-input"
-          placeholder="在此粘贴职位描述（JD）..."
-          value={jobDesc}
-          onChange={(e) => setJobDesc(e.target.value)}
-          rows={8}
-        />
-        <div className="ats-box-actions">
-          <button className="btn btn-primary" onClick={analyze} disabled={analyzing || !resumeData}>
-            {analyzing ? '⏳ 正在深度分析…' : '🎯 开始匹配诊断'}
-          </button>
-          {!resumeData && (
-            <span className="ats-box-hint">需要先在编辑器中准备一份简历</span>
-          )}
-        </div>
-      </div>
-
-      {error && (
-        <div className="notice notice-err" style={{ marginTop: '14px' }}>
-          {error}
-        </div>
-      )}
-
-      {!analysis && !analyzing && !error && (
-        <div className="empty-state">
-          <p>尚未分析。粘贴职位描述后点击「开始匹配诊断」。</p>
-        </div>
-      )}
-
-      {/* ========== 结果区 ========== */}
-      {analysis && (
-        <div className="ats-result">
-
-          {/* 综合得分 + 语义总体评价 */}
-          <h3 style={{ fontSize: '24px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            匹配得分：
-            <strong style={{ color: getScoreColor(analysis.displayScore), fontSize: '32px' }}>
-              {analysis.displayScore}
-              <span style={{ fontSize: '20px' }}>/100</span>
-            </strong>
-          </h3>
-
-          {semantic?.overallAssessment && (
-            <div style={{ padding: '14px 16px', background: '#f0f7ff', borderLeft: '4px solid #2196F3', borderRadius: '4px', marginBottom: '24px', fontSize: '15px', lineHeight: '1.7' }}>
-              <strong>🧭 语义总评：</strong> {semantic.overallAssessment}
+      {/* ===== 双栏诊断工作台:左输入(sticky) / 右结果仪表盘 ===== */}
+      <div className="ats-workbench">
+        <aside className="ats-input-panel">
+          <div className="ats-panel">
+            <div className="ats-panel-title">
+              <span>🎯 诊断输入</span>
+              {hasWork && (
+                <button className="btn-ghost" style={{ fontSize: '12px', padding: '2px 8px' }} onClick={clearWorkspace}>🗑 清空</button>
+              )}
             </div>
+
+            {/* 匹配对象:本次诊断基于哪份简历(多版本下显式声明,消除歧义) */}
+            {resumeVersion && (
+              <div style={{ marginTop: '12px' }}>
+                <ResumePicker version={resumeVersion} onChange={handleVersionChange} label="本次诊断基于的简历" />
+              </div>
+            )}
+
+            <div style={{ marginTop: '12px' }}>
+              <div className="ats-box-head" style={{ marginBottom: '8px' }}>
+                <span>📋 职位描述（JD）</span>
+                <span className="ats-box-hint">{jobDesc.trim() ? `${jobDesc.trim().length} 字` : '粘贴完整 JD 更准'}</span>
+              </div>
+              <textarea
+                className="ats-input"
+                placeholder="在此粘贴职位描述（JD）..."
+                value={jobDesc}
+                onChange={(e) => setJobDesc(e.target.value)}
+                rows={10}
+              />
+            </div>
+
+            <button className="btn btn-primary" style={{ marginTop: '12px', width: '100%' }} onClick={analyze} disabled={analyzing || !resumeData}>
+              {analyzing ? '⏳ 分析中…' : '🎯 开始匹配诊断'}
+            </button>
+            {!resumeData && (
+              <span className="ats-box-hint" style={{ marginTop: '8px' }}>需要先在编辑器或导入页准备一份简历</span>
+            )}
+
+            {/* 分层进度:idle 灰 / running 橙脉冲 / done 绿 / failed 红 */}
+            {(analyzing || verifying) && (
+              <div className="ats-stage-list" style={{ marginTop: '14px' }}>
+                <div className={`ats-stage-item ${stage.basic}`}><span className="ats-stage-dot" />关键词层匹配</div>
+                <div className={`ats-stage-item ${stage.semantic}`}><span className="ats-stage-dot" />语义逐条诊断</div>
+                {verifying && <div className="ats-stage-item running"><span className="ats-stage-dot" />建议质量校验</div>}
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <div style={{ minWidth: 0 }}>
+          {error && (
+            <div className="notice notice-err" style={{ marginBottom: '14px' }}>{error}</div>
           )}
 
-          {/* 分维度得分（基础层） */}
-          {analysis.categoryScores && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              {Object.entries(analysis.categoryScores).map(([key, value]) => (
-                <div key={key} style={{ padding: '12px', background: '#f5f5f5', borderRadius: '8px' }}>
-                  <strong>{categoryLabels[key] || key}</strong>
-                  <div style={{ fontSize: '20px', color: getScoreColor(value) }}>{value}/100</div>
+          {(analysis || semantic) ? (
+            <div className="ats-result">
+
+          {/* 得分 hero:环形匹配分 + 分维度 + 语义总评 */}
+          {(analysis || semantic?.overallAssessment) && (
+            <div className="ats-hero" style={{ marginBottom: '4px' }}>
+              {analysis && (
+                <div className="ats-score-ring">
+                  <svg width="92" height="92" viewBox="0 0 92 92" aria-hidden="true">
+                    <circle cx="46" cy="46" r="40" fill="none" stroke="#E8ECF1" strokeWidth="8" />
+                    <circle
+                      cx="46" cy="46" r="40" fill="none"
+                      stroke={getScoreColor(analysis.displayScore)} strokeWidth="8" strokeLinecap="round"
+                      strokeDasharray={`${(analysis.displayScore / 100) * 251.3} 251.3`}
+                    />
+                  </svg>
+                  <div className="ats-score-ring-value">
+                    <strong style={{ fontSize: '24px', color: getScoreColor(analysis.displayScore) }}>{analysis.displayScore}</strong>
+                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>匹配分</span>
+                  </div>
                 </div>
-              ))}
+              )}
+              <div style={{ flex: 1, minWidth: '220px' }}>
+                {analysis?.categoryScores && (
+                  <div className="ats-cat-chips" style={{ marginBottom: semantic?.overallAssessment ? '10px' : 0 }}>
+                    {Object.entries(analysis.categoryScores).map(([key, value]) => (
+                      <div key={key} className="ats-cat-chip">
+                        {categoryLabels[key] || key}
+                        <strong style={{ color: getScoreColor(value) }}>{value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {semantic?.overallAssessment && (
+                  <p style={{ fontSize: '13.5px', lineHeight: 1.7, color: '#334155', margin: 0 }}>
+                    🧭 {semantic.overallAssessment}
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
-          {/* 增量1：逐条职责语义匹配 */}
-          {semantic?.requirements && semantic.requirements.length > 0 && (
-            <CollapsibleSection
-              icon="📋"
-              title="逐条职责语义匹配"
-              meta={(() => {
-                const c = { full: 0, partial: 0, missing: 0 };
-                semantic.requirements.forEach((r) => { if (c[r.matchLevel] != null) c[r.matchLevel] += 1; });
-                return `${c.full} 完全 · ${c.partial} 部分 · ${c.missing} 未体现`;
-              })()}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {semantic.requirements.map((req, i) => {
-                  const meta = LEVEL_META[req.matchLevel] || LEVEL_META.partial;
-                  return (
-                    <div key={i} style={{ padding: '14px 16px', background: '#fff', border: '1px solid #e0e0e0', borderRadius: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '15px', fontWeight: '500' }}>{req.requirement}</span>
-                        <span style={{ padding: '2px 10px', borderRadius: '16px', fontSize: '12px', fontWeight: '600', background: meta.bg, color: meta.color }}>
-                          {meta.label}
-                        </span>
+          {/* 分层 Tab:逐条诊断 / 改进建议 / 关键词 */}
+          <div className="ats-tabs" role="tablist">
+            {tabsAvailable.includes('requirements') && (
+              <button
+                className={`ats-tab${effectiveTab === 'requirements' ? ' active' : ''}`}
+                onClick={() => setResultTab('requirements')}
+                role="tab"
+                aria-selected={effectiveTab === 'requirements'}
+              >
+                📋 逐条诊断<span className="ats-tab-meta">{semantic.requirements.length} 条</span>
+              </button>
+            )}
+            {tabsAvailable.includes('actions') && (
+              <button
+                className={`ats-tab${effectiveTab === 'actions' ? ' active' : ''}`}
+                onClick={() => setResultTab('actions')}
+                role="tab"
+                aria-selected={effectiveTab === 'actions'}
+              >
+                ✅ 改进建议<span className="ats-tab-meta">{actionsMeta}</span>
+              </button>
+            )}
+            {tabsAvailable.includes('keywords') && (
+              <button
+                className={`ats-tab${effectiveTab === 'keywords' ? ' active' : ''}`}
+                onClick={() => setResultTab('keywords')}
+                role="tab"
+                aria-selected={effectiveTab === 'keywords'}
+              >
+                🔑 关键词<span className="ats-tab-meta">{analysis.matchedKeywords?.length || 0} 命中 · {analysis.missingKeywords?.length || 0} 缺失</span>
+              </button>
+            )}
+          </div>
+
+          {/* Tab 1:逐条职责语义匹配 */}
+          {effectiveTab === 'requirements' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
+              {semantic.requirements.map((req, i) => {
+                const meta = LEVEL_META[req.matchLevel] || LEVEL_META.partial;
+                // 有 evidence 且能定位到具体 bullet 才提供「去改写」;完全缺失(无证据)时改写无从下手,保持诚实
+                const target = req.matchLevel !== 'full' && req.evidence ? findBulletByEvidence(resumeData, req.evidence) : null;
+                const bonusHint = req.priority === 'bonus' && req.matchLevel === 'missing' ? '(加分项,不必为凑分硬编。)' : '';
+                return (
+                  <div key={i} style={{ padding: '14px 16px', background: '#fff', border: '1px solid #e0e0e0', borderLeft: `4px solid ${meta.color}`, borderRadius: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                          <span style={{ padding: '2px 10px', borderRadius: '16px', fontSize: '12px', fontWeight: '600', background: meta.bg, color: meta.color }}>
+                            {meta.label}
+                          </span>
+                          {req.priority === 'bonus' ? (
+                            <span style={{ padding: '2px 10px', borderRadius: '16px', fontSize: '12px', fontWeight: '600', background: '#ECEFF1', color: '#546E7A' }}>加分项</span>
+                          ) : req.priority === 'must' ? (
+                            <span style={{ padding: '2px 10px', borderRadius: '16px', fontSize: '12px', fontWeight: '600', background: '#E8EAF6', color: '#3949AB' }}>必须项</span>
+                          ) : null}
+                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: '500', lineHeight: 1.5 }}>{req.requirement}</div>
                       </div>
-                      {req.evidence && (
-                        <p style={{ fontSize: '13px', color: '#555', margin: '4px 0' }}>
-                          <strong>证据：</strong>「{req.evidence}」
-                        </p>
-                      )}
-                      {req.reasoning && (
-                        <p style={{ fontSize: '13px', color: '#666', margin: '4px 0' }}>
-                          <strong>判定理由：</strong>{req.reasoning}
-                        </p>
-                      )}
-                      {req.suggestion && (
-                        <p style={{ fontSize: '13px', color: '#0d47a1', margin: '4px 0', background: '#e3f2fd', padding: '6px 10px', borderRadius: '6px' }}>
-                          💡 补强建议：{req.suggestion}
-                        </p>
+                      {target && (
+                        <button
+                          className="btn-ghost"
+                          style={{ fontSize: '12px', padding: '4px 12px', flexShrink: 0 }}
+                          onClick={() => openRewrite(req, target)}
+                          title="AI 按护栏改写对应经历要点:只重写措辞,不新增事实"
+                        >
+                          ✏️ 去改写
+                        </button>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            </CollapsibleSection>
+                    {req.evidence && (
+                      <p style={{ fontSize: '13px', color: '#555', margin: '6px 0 0' }}>
+                        <strong>证据：</strong>「{req.evidence}」
+                      </p>
+                    )}
+                    {req.reasoning && (
+                      <p style={{ fontSize: '13px', color: '#666', margin: '4px 0 0' }}>
+                        <strong>判定理由：</strong>{req.reasoning}
+                      </p>
+                    )}
+                    {req.suggestion && (
+                      <p style={{ fontSize: '13px', color: '#0d47a1', margin: '6px 0 0', background: '#e3f2fd', padding: '6px 10px', borderRadius: '6px' }}>
+                        💡 补强建议：{req.suggestion}{bonusHint}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
 
-          {/* 增量2：建议质量 verifier */}
-          {semantic?.priorityActions && semantic.priorityActions.length > 0 && (
-            <CollapsibleSection
-              icon="✅"
-              title="建议质量独立校验"
-              meta={(() => {
-                if (verifying) return '校验中…';
-                if (verification?.results?.length > 0) {
-                  const passed = verification.results.filter((r) => r.verified === true).length;
-                  return `${passed}/${verification.results.length} 通过`;
-                }
-                return '';
-              })()}
-            >
+          {/* Tab 2:改进建议 + 质量独立校验 */}
+          {effectiveTab === 'actions' && (
+            <div style={{ marginTop: '16px' }}>
               <p style={{ fontSize: '13px', color: '#888', margin: '0 0 12px' }}>
                 每条建议经独立校验：是否相关、是否具体可执行、是否诚实（不诱导编造经历）。
               </p>
@@ -450,16 +624,12 @@ export default function ATS() {
                   校验小结：{verification.summary}
                 </p>
               )}
-            </CollapsibleSection>
+            </div>
           )}
 
-          {/* 基础层：命中 / 缺失关键词 */}
-          <CollapsibleSection
-            icon="🔑"
-            title="关键词层匹配"
-            meta={`${analysis.matchedKeywords?.length || 0} 命中 · ${analysis.missingKeywords?.length || 0} 缺失`}
-          >
-            <div className="ats-metrics">
+          {/* Tab 3:关键词层匹配(命中 / 缺失,缺失按必须/加分分级) */}
+          {effectiveTab === 'keywords' && (
+            <div className="ats-metrics" style={{ marginTop: '16px' }}>
               <div>
                 <strong style={{ fontSize: '15px', marginBottom: '8px', display: 'block' }}>✅ 已匹配关键词</strong>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -474,18 +644,43 @@ export default function ATS() {
               </div>
               <div style={{ marginTop: '16px' }}>
                 <strong style={{ fontSize: '15px', marginBottom: '8px', display: 'block' }}>❌ 缺失关键词 / 能力</strong>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {analysis.missingKeywords?.length > 0 ? (
-                    analysis.missingKeywords.map((keyword, i) => (
-                      <span key={i} style={{ padding: '4px 12px', background: '#f8d7da', color: '#721c24', borderRadius: '16px', fontSize: '14px' }}>{keyword}</span>
-                    ))
-                  ) : (
-                    <p style={{ color: '#666' }}>所有关键词均已匹配！</p>
-                  )}
-                </div>
+                {(() => {
+                  // 优先用分级明细(必须/加分);旧结果无明细时全部按必须项展示
+                  const tiers = Array.isArray(analysis.missingKeywordTiers) && analysis.missingKeywordTiers.length > 0
+                    ? analysis.missingKeywordTiers
+                    : (analysis.missingKeywords || []).map((t) => ({ term: t, tier: 'must' }));
+                  if (tiers.length === 0) {
+                    return <p style={{ color: '#666' }}>所有关键词均已匹配！</p>;
+                  }
+                  const must = tiers.filter((t) => t.tier !== 'bonus');
+                  const bonus = tiers.filter((t) => t.tier === 'bonus');
+                  return (
+                    <>
+                      {must.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {must.map((t, i) => (
+                            <span key={`m${i}`} style={{ padding: '4px 12px', background: '#f8d7da', color: '#721c24', borderRadius: '16px', fontSize: '14px' }}>{t.term}</span>
+                          ))}
+                        </div>
+                      )}
+                      {bonus.length > 0 && (
+                        <div style={{ marginTop: must.length > 0 ? '12px' : 0 }}>
+                          <p style={{ fontSize: '13px', color: '#546E7A', margin: '0 0 8px' }}>
+                            ☑ 以下为 JD 标注的「优先/加分」项 —— 不必为凑分硬编,可在面试中用学习路径自然补足:
+                          </p>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {bonus.map((t, i) => (
+                              <span key={`b${i}`} style={{ padding: '4px 12px', background: '#ECEFF1', color: '#546E7A', borderRadius: '16px', fontSize: '14px' }}>{t.term}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
-          </CollapsibleSection>
+          )}
 
           {/* 入口：带着这份 JD 去模拟面试（演练闭环） */}
           <div style={{
@@ -499,6 +694,84 @@ export default function ATS() {
             <button className="btn btn-primary" onClick={goInterviewWithJd}>
               🎤 去模拟面试 →
             </button>
+          </div>
+            </div>
+          ) : analyzing ? (
+            <div className="ats-result" style={{ textAlign: 'center', padding: '48px 22px' }}>
+              <p style={{ fontSize: '15px', color: '#475569', margin: 0 }}>⏳ 正在深度分析 —— 结果将分层实时呈现</p>
+            </div>
+          ) : !error && (
+            <div className="empty-state">
+              <p>尚未分析。在左侧粘贴职位描述后点击「开始匹配诊断」。</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ========== 一键改写模态:原 bullet vs AI 护栏改写 ========== */}
+      {rewriteModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => { if (!rewriteModal.busy) setRewriteModal(null); }}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: '12px', maxWidth: '680px', width: '100%', maxHeight: '85vh', overflowY: 'auto', padding: '20px 22px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 6px', fontSize: '18px' }}>✏️ 按 JD 改写这条经历</h3>
+            <p style={{ fontSize: '13px', color: '#666', margin: '0 0 14px' }}>
+              改写护栏:AI 只重写措辞,把已有经历中与 JD 相关的部分讲得更清楚;不会新增任何事实。
+            </p>
+
+            <p style={{ fontSize: '13px', margin: '0 0 4px' }}>
+              <strong>职位要求:</strong>{rewriteModal.req.requirement}
+            </p>
+            {rewriteModal.req.suggestion && (
+              <p style={{ fontSize: '13px', color: '#0d47a1', margin: '0 0 12px' }}>💡 {rewriteModal.req.suggestion}</p>
+            )}
+
+            <div style={{ fontSize: '13px', margin: '0 0 4px', color: '#555' }}>
+              <strong>原文</strong>(来自「{rewriteModal.exp?.position || '经历'} · {rewriteModal.exp?.company || ''}」):
+            </div>
+            <div style={{ fontSize: '14px', lineHeight: '1.6', background: '#f8f9fa', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '10px 12px', marginBottom: '12px' }}>
+              {rewriteModal.bullet}
+            </div>
+
+            {rewriteModal.rewritten && (
+              <>
+                <div style={{ fontSize: '13px', margin: '0 0 4px', color: '#0d47a1' }}><strong>AI 改写</strong>:</div>
+                <div style={{ fontSize: '14px', lineHeight: '1.6', background: '#e3f2fd', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '10px 12px', marginBottom: '12px' }}>
+                  {rewriteModal.rewritten}
+                </div>
+              </>
+            )}
+
+            {rewriteModal.busy && (
+              <p style={{ fontSize: '13px', color: '#666', margin: '0 0 12px' }}>⏳ AI 正在按护栏改写…</p>
+            )}
+            {rewriteModal.error && (
+              <p className="notice notice-err" style={{ margin: '0 0 12px' }}>{rewriteModal.error}</p>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              {!rewriteModal.rewritten ? (
+                <button className="btn btn-primary" onClick={runRewrite} disabled={rewriteModal.busy}>
+                  {rewriteModal.busy ? '⏳ 改写中…' : '🪄 AI 按护栏改写'}
+                </button>
+              ) : (
+                <>
+                  <button className="btn-ghost" style={{ fontSize: '13px', padding: '6px 14px' }} onClick={runRewrite} disabled={rewriteModal.busy}>
+                    🔄 换一版
+                  </button>
+                  <button className="btn btn-primary" onClick={applyRewrite} disabled={rewriteModal.busy}>
+                    ✅ 应用到简历
+                  </button>
+                </>
+              )}
+              <button className="btn-ghost" style={{ fontSize: '13px', padding: '6px 14px' }} onClick={() => setRewriteModal(null)} disabled={rewriteModal.busy}>
+                取消
+              </button>
+            </div>
           </div>
         </div>
       )}

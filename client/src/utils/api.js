@@ -85,7 +85,18 @@ export async function fillGaps({ gapPeriod, reason }) {
 }
 
 /**
- * Field-level polish: rewrite language/structure only, keep facts intact
+ * JD 驱动的经历要点改写(真实性护栏:只重写措辞,不新增事实)
+ * 由 ATS 诊断「去改写」调用:bullet 为原始经历要点,requirement/suggestion 来自语义诊断
+ */
+export async function rewriteForJd({ bullet, requirement, suggestion, jobDescription }) {
+  return fetchAPI('/api/ai/rewrite-for-jd', {
+    method: 'POST',
+    body: JSON.stringify({ bullet, requirement, suggestion, jobDescription }),
+  });
+}
+
+/**
+ * 字段级润色: rewrite language/structure only, keep facts intact
  */
 export async function polishText({ text, kind = 'bullet' }) {
   return fetchAPI('/api/ai/polish-text', {
@@ -128,11 +139,12 @@ export async function semanticMatch({ resumeData, jobDescription }) {
 
 /**
  * [增量] 建议质量 verifier：独立校验建议是否相关/具体/诚实
+ * 传结构化 resumeData,由后端用 formatResumeAsText 统一格式化(与诊断端点同口径)
  */
-export async function verifySuggestions({ resumeText, jobDescription, suggestions, missingKeywords }) {
+export async function verifySuggestions({ resumeData, jobDescription, suggestions, missingKeywords }) {
   return fetchAPI('/api/ats/verify-suggestions', {
     method: 'POST',
-    body: JSON.stringify({ resumeText, jobDescription, suggestions, missingKeywords }),
+    body: JSON.stringify({ resumeData, jobDescription, suggestions, missingKeywords }),
   });
 }
 
@@ -188,21 +200,21 @@ export async function consistencyCheck({ question = '', userAnswer, resumeBrief,
  * Evaluate interview answer
  * P2 追问：followUpQuestion / followUpAnswer 可选——有追问时评估综合首答与补答
  */
-export async function evaluateAnswer({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '', followUpQuestion = '', followUpAnswer = '', style = 'standard' }) {
+export async function evaluateAnswer({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '', followUpQuestion = '', followUpAnswer = '', followUpRounds = [], style = 'standard' }) {
   return fetchAPI('/api/interview/evaluate', {
     method: 'POST',
-    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief, followUpQuestion, followUpAnswer, style }),
+    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief, followUpQuestion, followUpAnswer, followUpRounds, style }),
   });
 }
 
 /**
  * Generate interviewer follow-up question (P2 真人面试循环)
- * 基于候选人对某题的首答，生成 1 条追问
+ * 基于候选人对某题的首答生成 1 条追问；支持多轮追问链（history 传已完成轮次）
  */
-export async function generateFollowUp({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '', style = 'standard' }) {
+export async function generateFollowUp({ question, userAnswer, questionType = 'behavioral', jobTitle = '', jobDescription = '', resumeBrief = '', style = 'standard', history = [] }) {
   return fetchAPI('/api/interview/follow-up', {
     method: 'POST',
-    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief, style }),
+    body: JSON.stringify({ question, userAnswer, questionType, jobTitle, jobDescription, resumeBrief, style, history }),
   });
 }
 
@@ -358,6 +370,8 @@ export default {
   improveBullet,
   convertToStar,
   fillGaps,
+  polishText,
+  rewriteForJd,
   
   // ATS Analyzer
   analyzeATS,

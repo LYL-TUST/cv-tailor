@@ -146,6 +146,24 @@ export function deleteVersion(id) {
 }
 
 /**
+ * 定向更新某个版本的数据(不切换激活版本)。
+ * mutator: (data) => newData;若目标版本是激活版,同步写穿 resumeData 兼容镜像。
+ * 用于 ATS 诊断「一键改写」等跨页写入场景。返回更新后的版本,版本不存在返回 null。
+ */
+export function updateVersionData(id, mutator) {
+  const versions = readVersions();
+  const idx = versions.findIndex((v) => v.id === id);
+  if (idx < 0) return null;
+  const next = mutator(JSON.parse(JSON.stringify(versions[idx].data)));
+  versions[idx] = { ...versions[idx], data: next, updatedAt: new Date().toISOString() };
+  writeVersions(versions);
+  if (localStorage.getItem(ACTIVE_KEY) === id) {
+    localStorage.setItem(LEGACY_KEY, JSON.stringify(next));
+  }
+  return versions[idx];
+}
+
+/**
  * 导入简历结果写入：默认覆盖当前激活版本；
  * replace=false 时新建「导入简历」版本（不覆盖已有内容）。
  */

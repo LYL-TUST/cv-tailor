@@ -10,3 +10,16 @@ export const openai = new OpenAI({
 });
 
 export const MODEL_NAME = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+// deepseek-v4-flash 起思考模式默认开启(effort=high),对本项目的润色/JSON 抽取类任务
+// 只增加延迟与输出 token,无收益 —— 默认关闭;设 OPENAI_THINKING=1 可全局开启。
+// 仅对 DeepSeek 端点注入,避免直连 OpenAI 官方 API 时未知参数被拒。
+const isDeepSeek = (process.env.OPENAI_BASE_URL || "").includes("deepseek");
+if (isDeepSeek) {
+  const rawCreate = openai.chat.completions.create.bind(openai.chat.completions);
+  openai.chat.completions.create = (params = {}) =>
+    rawCreate({
+      ...params,
+      thinking: { type: process.env.OPENAI_THINKING === "1" ? "enabled" : "disabled" },
+    });
+}

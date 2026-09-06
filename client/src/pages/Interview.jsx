@@ -82,24 +82,34 @@ const CONS_VERDICT = {
 };
 
 const WEAK_SCORE = 6; // 低于此分视为弱题(整场复盘「建议再练」)
+const MAX_FOLLOWUP_ROUNDS = 2; // 每题最多追问轮数(首答后面试官最多连续追问 2 轮;想调整深度改这里即可)
 
 /**
  * 整场复盘的本地统计(纯前端算术;追问命中率/角度分布是核心增量,LLM 只负责跨题归纳)
  * 判定弱题:低分 / 超时 / 被追问但未回应 —— 三者都是「经不起追问」的信号
  */
+/** 逐题追问轮次(兼容旧单轮结构 followUp 与新多轮结构 followUpRounds) */
+function recordRounds(r) {
+  if (Array.isArray(r.followUpRounds) && r.followUpRounds.length) {
+    return r.followUpRounds.filter((h) => h && h.question);
+  }
+  return r.followUp && r.followUp.question ? [r.followUp] : [];
+}
+
 function buildSessionStats(records) {
   const list = Array.isArray(records) ? records : [];
   const scored = list.filter((r) => typeof r.score === 'number');
   const avg = scored.length
     ? Math.round((scored.reduce((s, r) => s + r.score, 0) / scored.length) * 10) / 10
     : null;
-  const followUps = list.filter((r) => r.followUp && r.followUp.question);
-  const responded = followUps.filter((r) => (r.followUp.answer || '').trim());
+  // 多轮追问:统计按「轮」计(一场里每道题可能被连续追问多次)
+  const allRounds = list.flatMap((r) => recordRounds(r));
+  const responded = allRounds.filter((h) => (h.answer || '').trim());
 
   // 追问角度分布:面试官最常从哪些角度"问穿"你
   const angleMap = new Map();
-  followUps.forEach((r) => {
-    const key = r.followUp.angle || '其他';
+  allRounds.forEach((h) => {
+    const key = h.angle || '其他';
     angleMap.set(key, (angleMap.get(key) || 0) + 1);
   });
   const angleCounts = [...angleMap.entries()]
@@ -112,14 +122,14 @@ function buildSessionStats(records) {
     category: r.category || '',
     flagged: (typeof r.score === 'number' && r.score < WEAK_SCORE)
       || Boolean(r.timeUp)
-      || Boolean(r.followUp && r.followUp.question && !(r.followUp.answer || '').trim()),
+      || recordRounds(r).some((h) => h.question && !(h.answer || '').trim()),
   }));
 
   return {
     answered: list.length,
     avg,
     timedOut: list.filter((r) => r.timeUp).length,
-    followUpCount: followUps.length,
+    followUpCount: allRounds.length,
     followUpResponded: responded.length,
     angleCounts,
     perQuestion,
@@ -184,8 +194,9 @@ export default function Interview() {
   const [timeLeft, setTimeLeft] = useState(null); // 当前题剩余秒数(null=未启动)
   const [timeUp, setTimeUp] = useState(false); // 本题是否已超时(记录到 sessionRecord)
   const [firstAnswerSubmitted, setFirstAnswerSubmitted] = useState(false); // 首答是否已交给面试官(停表/进入追问)
-  const [followUp, setFollowUp] = useState(null); // 当前题的面试官追问 { question, angle }
-  const [followUpAnswer, setFollowUpAnswer] = useState(""); // 追问补答
+  const [followUp, setFollowUp] = useState(null); // 当前待回应的面试官追问 { question, angle }
+  const [followUpHistory, setFollowUpHistory] = useState([]); // 已完成的追问轮次 [{ question, angle, answer }](多轮追问链)
+  const [followUpAnswer, setFollowUpAnswer] = useState(""); // 当前轮追问补答
   const [followUpLoading, setFollowUpLoading] = useState(false); // 追问生成中
   const timeUpRef = useRef(false); // 评估落库时读(避免闭包陈旧)
 
@@ -273,6 +284,7 @@ export default function Interview() {
     timeUpRef.current = false;
     setFirstAnswerSubmitted(false);
     setFollowUp(null);
+    setFollowUpHistory([]);
     setFollowUpAnswer("");
     setFollowUpLoading(false);
     voiceTargetRef.current = "first";
@@ -392,6 +404,7 @@ export default function Interview() {
       if (typeof draft.userAnswer === "string") setUserAnswer(draft.userAnswer);
       if (typeof draft.firstAnswerSubmitted === "boolean") setFirstAnswerSubmitted(draft.firstAnswerSubmitted);
       if (draft.followUp && draft.followUp.question) setFollowUp(draft.followUp);
+      if (Array.isArray(draft.followUpHistory)) setFollowUpHistory(draft.followUpHistory);
       if (typeof draft.followUpAnswer === "string") setFollowUpAnswer(draft.followUpAnswer);
       if (draft.evaluation) setEvaluation(draft.evaluation);
       if (draft.sessionRecords) setSessionRecords(draft.sessionRecords);
@@ -440,6 +453,7 @@ export default function Interview() {
         userAnswer,
         firstAnswerSubmitted,
         followUp,
+        followUpHistory,
         followUpAnswer,
         evaluation,
         sessionRecords,
@@ -450,7 +464,7 @@ export default function Interview() {
     }, 800);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobTitle, withJd, jd, withResume, interviewType, questionCount, difficultyMode, interviewerStyle, focusCategories, timeLimitSec, resumeVersion, questions, currentQuestionIndex, userAnswer, firstAnswerSubmitted, followUp, followUpAnswer, evaluation, sessionRecords, sessionSaved, report]);
+  }, [jobTitle, withJd, jd, withResume, interviewType, questionCount, difficultyMode, interviewerStyle, focusCategories, timeLimitSec, resumeVersion, questions, currentQuestionIndex, userAnswer, firstAnswerSubmitted, followUp, followUpHistory, followUpAnswer, evaluation, sessionRecords, sessionSaved, report]);
 
   /** 结束当前练习并清空本页（已保存到个人中心的记录不受影响） */
   const clearWorkspace = () => {
@@ -582,6 +596,7 @@ export default function Interview() {
     }
 
     setFirstAnswerSubmitted(true); // 停表、锁定首答
+    setFollowUpHistory([]); // 新一轮首答,追问链从头开始
     setFollowUpLoading(true);
     setError(null);
 
@@ -597,6 +612,7 @@ export default function Interview() {
         jobDescription: ctx.jd,
         resumeBrief: ctx.resumeBrief,
         style: ctx.style || "standard",
+        history: [],
       });
       if (result?.followUp) {
         setFollowUp({ question: result.followUp, angle: result.angle || "" });
@@ -608,6 +624,49 @@ export default function Interview() {
       // 追问生成失败不阻塞主流程:留在追问阶段,可直接获取反馈或返回修改
       setFollowUp(null);
       setError(`追问生成失败: ${err.message} —— 可直接点击下方「获取 AI 反馈」，或返回修改回答`);
+    } finally {
+      setFollowUpLoading(false);
+    }
+  };
+
+  /** 多轮追问:提交本轮补答,面试官基于追问链继续追问(最多 MAX_FOLLOWUP_ROUNDS 轮) */
+  const continueFollowUp = async () => {
+    if (!followUp?.question || !followUpAnswer.trim() || followUpLoading || loading) return;
+    if (!ctxRef.current) {
+      setError("会话上下文丢失，请重新生成面试题");
+      return;
+    }
+
+    const finished = [...followUpHistory, { question: followUp.question, angle: followUp.angle || "", answer: followUpAnswer.trim() }];
+    setFollowUpHistory(finished);
+    setFollowUp(null);
+    setFollowUpAnswer("");
+    setFollowUpLoading(true);
+    setError(null);
+
+    const currentQuestion = questions[currentQuestionIndex];
+    const ctx = ctxRef.current;
+    try {
+      const qType = ctx.type === 'resume-drill' ? 'resume-drill' : currentQuestion.type;
+      const result = await api.generateFollowUp({
+        question: currentQuestion.question,
+        userAnswer,
+        questionType: qType,
+        jobTitle: ctx.jobTitle,
+        jobDescription: ctx.jd,
+        resumeBrief: ctx.resumeBrief,
+        style: ctx.style || "standard",
+        history: finished,
+      });
+      if (result?.followUp) {
+        setFollowUp({ question: result.followUp, angle: result.angle || "" });
+        track("interview_followup_continue", { round: finished.length + 1 });
+      } else {
+        throw new Error("追问内容为空");
+      }
+    } catch (err) {
+      // 继续追问失败不阻塞主流程:本轮补答已记入追问链,可直接获取反馈
+      setError(`追问生成失败: ${err.message} —— 本轮补答已记录，可直接点击「获取 AI 反馈」`);
     } finally {
       setFollowUpLoading(false);
     }
@@ -625,7 +684,13 @@ export default function Interview() {
 
     const currentQuestion = questions[currentQuestionIndex];
     const ctx = ctxRef.current;
-    const hasFollowUp = Boolean(followUp?.question);
+
+    // 多轮追问链:已完成的轮次 + 当前待回应轮(未回应也是有效信号,answer 留空)
+    const allRounds = [...followUpHistory];
+    if (followUp?.question) {
+      allRounds.push({ question: followUp.question, angle: followUp.angle || "", answer: followUpAnswer.trim() });
+    }
+    const hasFollowUp = allRounds.length > 0;
 
     // 语音填入后被用户编辑过 → 记录（编辑率是语音转写质量的衡量指标，越低越好）
     const voiceFilled = voiceFillRef.current;
@@ -633,8 +698,8 @@ export default function Interview() {
       track("interview_voice_edited", {});
     }
     // 追问闭环:用户补答后才算「应对了追问」(空补答=未回应,也是有效信号)
-    if (hasFollowUp && followUpAnswer.trim()) {
-      track("interview_followup_answered", {});
+    if (hasFollowUp && allRounds.some((h) => h.answer)) {
+      track("interview_followup_answered", { rounds: allRounds.length });
     }
 
     setLoading(true);
@@ -651,8 +716,9 @@ export default function Interview() {
         jobTitle: ctx.jobTitle,
         jobDescription: ctx.jd,
         resumeBrief: ctx.resumeBrief,
-        followUpQuestion: hasFollowUp ? followUp.question : "",
-        followUpAnswer: followUpAnswer.trim(),
+        followUpQuestion: hasFollowUp ? (allRounds[0]?.question || "") : "",
+        followUpAnswer: hasFollowUp ? (allRounds[0]?.answer || "") : "",
+        followUpRounds: allRounds,
         style: ctx.style || "standard",
       });
 
@@ -673,11 +739,8 @@ export default function Interview() {
           starCompliance: result.starCompliance,
           authenticityNote: result.authenticityNote || "",
           improvedAnswer: result.improvedAnswer || "",
-          followUp: hasFollowUp ? {
-            question: followUp.question,
-            angle: followUp.angle || "",
-            answer: followUpAnswer.trim(),
-          } : null,
+          followUp: hasFollowUp ? allRounds[0] : null, // 兼容旧结构:保留第一轮
+          followUpRounds: hasFollowUp ? allRounds : null, // 多轮追问链(新)
           timeUp: timeUpRef.current, // 本题是否超时(仅限时模式有意义)
         }];
       });
@@ -1210,6 +1273,22 @@ export default function Interview() {
         <div className="notice notice-err" style={{ marginTop: '14px' }}>{error}</div>
       )}
 
+      {/* 出题加载态:设置区已收起而题目未返回,给足过程反馈避免空白 */}
+      {loading && questions.length === 0 && (
+        <div className="iv-gen-loading" role="status" aria-live="polite">
+          <div className="iv-gen-spinner" aria-hidden="true" />
+          <p className="iv-gen-title">
+            AI 面试官正在阅读{useResume ? '你的简历' : ''}{useResume && withJd ? '和' : ''}{withJd ? ' JD' : ''}{!useResume && !withJd ? '职位要求' : ''}，为你定制面试题…
+          </p>
+          <p className="iv-gen-sub">
+            {questionCount} 道{TYPE_OPTIONS.find((o) => o.value === interviewType)?.label.split('（')[0] || '面试'}题
+            {' · '}{difficultyMode === 'progressive' ? '由易到难' : DIFF_OPTIONS.find((o) => o.value === difficultyMode)?.label.split('（')[0] || difficultyMode}
+            {' · '}{STYLE_META[interviewerStyle]?.label || '大厂标准'}
+          </p>
+          <p className="iv-gen-hint">出题通常需要 10~30 秒（题目越多、资料越多越慢），请不要关闭页面</p>
+        </div>
+      )}
+
       {/* ========== 练习态:主栏(题卡+作答) + 侧栏(会话仪表盘) ========== */}
       {questions.length > 0 && currentQuestion && (
         <div className="iv-practice-grid">
@@ -1456,11 +1535,11 @@ export default function Interview() {
             )}
           </div>
 
-          {/* Interviewer follow-up（P2 真人面试循环）:基于首答自动追问一层,补答后综合评估 */}
-          {firstAnswerSubmitted && (followUpLoading || followUp) && (
+          {/* Interviewer follow-up（P2 真人面试循环,支持多轮）:补答后可继续追问,随时可获取综合评估 */}
+          {firstAnswerSubmitted && (followUpLoading || followUp || followUpHistory.length > 0) && (
             <div className="iv-followup">
               <div className="iv-followup-head">
-                <span className="iv-followup-cap">🗣 面试官追问</span>
+                <span className="iv-followup-cap">🗣 面试官追问{followUpHistory.length > 0 ? ` · 第 ${followUpHistory.length + 1} 轮` : ''}</span>
                 {followUp?.angle && <span className="iv-followup-angle">{followUp.angle}</span>}
                 {followUp && tts.supported && (
                   <button
@@ -1474,6 +1553,16 @@ export default function Interview() {
                   </button>
                 )}
               </div>
+              {followUpHistory.length > 0 && (
+                <div className="iv-followup-history">
+                  {followUpHistory.map((h, i) => (
+                    <div key={i} className="iv-followup-round">
+                      <p className="iv-followup-round-q">第 {i + 1} 轮{h.angle ? `（${h.angle}）` : ''}：{h.question}</p>
+                      <p className="iv-followup-round-a">我的补答：{h.answer}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
               {followUpLoading && <p className="iv-followup-text muted">面试官正在针对你的回答组织追问…</p>}
               {followUp && (
                 <>
@@ -1487,6 +1576,21 @@ export default function Interview() {
                     rows={4}
                   />
                   {renderVoicePanel("followup")}
+                  {followUpHistory.length + 1 < MAX_FOLLOWUP_ROUNDS ? (
+                    <div className="iv-followup-actions">
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={continueFollowUp}
+                        disabled={!followUpAnswer.trim() || followUpLoading || loading || voice.state !== 'idle'}
+                      >
+                        {followUpLoading ? '⏳ 面试官思考追问中…' : '提交补答 · 面试官继续追问 →'}
+                      </button>
+                      <span className="iv-answer-side">最多追问 {MAX_FOLLOWUP_ROUNDS} 轮</span>
+                    </div>
+                  ) : (
+                    <span className="iv-answer-side">这是最后一轮追问 —— 回答后点下方「获取 AI 反馈」即可综合评估</span>
+                  )}
                 </>
               )}
             </div>
@@ -1500,7 +1604,7 @@ export default function Interview() {
               </button>
               <button
                 className="btn-ghost"
-                onClick={() => { setFirstAnswerSubmitted(false); setFollowUp(null); setError(null); }}
+                onClick={() => { setFirstAnswerSubmitted(false); setFollowUp(null); setFollowUpHistory([]); setError(null); }}
                 disabled={loading || followUpLoading}
               >
                 ← 返回修改我的回答
@@ -1523,7 +1627,7 @@ export default function Interview() {
                     🔍 简历对照{consistency ? ` · ${(CONS_VERDICT[consistency.verdict] || CONS_VERDICT.minor).text}` : ''}
                   </button>
                 )}
-                {(followUp?.question || curRecord?.followUp) && (
+                {(followUp?.question || followUpHistory.length > 0 || curRecord?.followUp) && (
                   <button type="button" role="tab" aria-selected={evalTab === 'followup'} className={`iv-eval-tab${evalTab === 'followup' ? ' active' : ''}`} onClick={() => setEvalTab('followup')}>
                     🗣 追问应对
                   </button>
@@ -1605,18 +1709,30 @@ export default function Interview() {
               )}
 
               {evalTab === 'followup' && (() => {
-                const fu = followUp?.question ? followUp : curRecord?.followUp;
-                if (!fu) return null;
+                // 多轮追问链:优先展示本次现场(已答轮次+当前轮),否则回看历史记录(兼容旧单轮结构)
+                const liveRounds = [...followUpHistory];
+                if (followUp?.question) {
+                  liveRounds.push({ question: followUp.question, angle: followUp.angle || "", answer: followUpAnswer.trim() });
+                }
+                const rounds = liveRounds.length
+                  ? liveRounds
+                  : recordRounds(curRecord || {});
+                if (!rounds.length) return null;
                 return (
                   <div className="iv-eval-sec">
-                    <div className="iv-followup">
-                      <p style={{ margin: 0, fontWeight: 600 }}>🗣 面试官追问{fu.angle ? `（${fu.angle}）` : ""}：{fu.question}</p>
-                      {fu.answer ? (
-                        <p style={{ margin: '6px 0 0' }}><strong>我的补答：</strong>{fu.answer}</p>
-                      ) : (
-                        <p style={{ margin: '6px 0 0', color: '#94a3b8' }}>（未回应追问——真实面试里接不住追问很扣分，建议补练「被追问时如何接话」）</p>
-                      )}
-                    </div>
+                    {rounds.length > 1 && (
+                      <p style={{ margin: '0 0 8px', fontWeight: 600 }}>🗣 本题共被追问 {rounds.length} 轮</p>
+                    )}
+                    {rounds.map((fu, i) => (
+                      <div key={i} className="iv-followup">
+                        <p style={{ margin: 0, fontWeight: 600 }}>🗣 面试官追问{rounds.length > 1 ? ` · 第 ${i + 1} 轮` : ''}{fu.angle ? `（${fu.angle}）` : ""}：{fu.question}</p>
+                        {fu.answer ? (
+                          <p style={{ margin: '6px 0 0' }}><strong>我的补答：</strong>{fu.answer}</p>
+                        ) : (
+                          <p style={{ margin: '6px 0 0', color: '#94a3b8' }}>（未回应追问——真实面试里接不住追问很扣分，建议补练「被追问时如何接话」）</p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 );
               })()}

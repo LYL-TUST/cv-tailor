@@ -285,7 +285,7 @@ ${ctxRules}
     }
 });
 
-// Generate interviewer follow-up question (P2 真人面试循环:基于首答生成 1 条追问)
+// Generate interviewer follow-up question (P2 真人面试循环:基于首答生成 1 条追问;支持多轮追问链)
 router.post("/follow-up", async (req, res) => {
     try {
         const {
@@ -296,6 +296,7 @@ router.post("/follow-up", async (req, res) => {
             jobDescription,
             resumeBrief,
             style: styleRaw,
+            history = [], // 多轮追问:已完成的追问轮次 [{ question, angle, answer }]
         } = req.body;
 
         if (!question || !userAnswer) {
@@ -311,20 +312,37 @@ router.post("/follow-up", async (req, res) => {
             brief ? `求职者简历摘要（面试官已阅读）：\n${brief}` : "",
         ].filter(Boolean).join("\n");
 
+        // 追问链归一化:只保留有题干且有补答的已完成轮次(控 token,答案截断)
+        const rounds = (Array.isArray(history) ? history : [])
+            .filter((h) => h && String(h.question || "").trim() && String(h.answer || "").trim())
+            .map((h) => ({
+                question: clip(String(h.question), 200),
+                angle: String(h.angle || "").trim(),
+                answer: clip(String(h.answer).trim(), 800),
+            }));
+        const roundNo = rounds.length + 1;
+        const roundsBlock = rounds.length
+            ? `\n【追问链（已发生的追问与候选人的补答）】\n${rounds
+                .map((h, i) => `第${i + 1}轮追问${h.angle ? `（${h.angle}）` : ""}：${h.question}\n候选人补答：${h.answer}`)
+                .join("\n")}\n`
+            : "";
+
         const prompt = `
-你是一位专业但严格的面试官，正在做模拟面试。候选人刚刚回答了你的问题，请基于其回答生成 1 条追问。
+你是一位专业但严格的面试官，正在做模拟面试。${rounds.length
+    ? `这是第 ${roundNo} 轮追问：候选人刚刚回答了你上一轮的追问，请继续深挖，生成 1 条新追问。`
+    : "候选人刚刚回答了你的问题，请基于其回答生成 1 条追问。"}
 ${styleRule(styleRaw)}
 
 ${contextBlock ? `【面试背景】\n${contextBlock}\n` : ""}
 【面试题】${question}
 【候选人回答】${userAnswer}
-题目类型：${isResumeDrill ? "简历深挖（行为/情境为主）" : questionType}
+${roundsBlock ? `${roundsBlock}` : ""}题目类型：${isResumeDrill ? "简历深挖（行为/情境为主）" : questionType}
 
 追问要求：
 - 追问必须针对候选人的回答内容：深挖其中的细节、数据来源、个人贡献，或挑战其中含糊、单薄、前后矛盾之处
 - 若提供了简历背景，可结合简历核查回答与真实经历是否一致，追问可指向需要澄清的点；绝不诱导候选人编造简历中不存在的经历、项目、数据
+${rounds.length ? "- 不得重复追问链中任何一轮已问过的问题；若上一轮的方向已答清楚，应换一个更贴近要害的角度继续深挖" : "- 不重复原问题，不脱离候选人的回答与已有背景凭空发问"}
 - 只问一个问题，具体、锋利但专业礼貌，中文，尽量不超过 50 字
-- 不重复原问题，不脱离候选人的回答与已有背景凭空发问
 
 以 JSON 输出：
 {
@@ -359,23 +377,33 @@ router.post("/session-report", async (req, res) => {
             return res.status(400).json({ error: "请提供本场逐题记录" });
         }
 
-        // 精简记录(控 token):题干/回答截断,追问只留角度与是否回应
-        const slim = records.slice(0, 10).map((r, i) => ({
-            no: i + 1,
-            question: clip(r.question, 80),
-            category: r.category || "",
-            type: r.type || "",
-            difficulty: r.difficulty || "",
-            score: typeof r.score === "number" ? r.score : null,
-            timeUp: Boolean(r.timeUp),
-            userAnswer: clip(r.userAnswer, 150),
-            followUp: r.followUp && r.followUp.question
-                ? { angle: r.followUp.angle || "", responded: Boolean((r.followUp.answer || "").trim()) }
-                : null,
-        }));
+        // 精简记录(控 token):题干/回答截断,追问只留轮数、回应数与角度(兼容旧单轮结构)
+        const roundsOf = (r) => (Array.isArray(r.followUpRounds) && r.followUpRounds.length
+            ? r.followUpRounds
+            : (r.followUp && r.followUp.question ? [r.followUp] : []));
+        const slim = records.slice(0, 10).map((r, i) => {
+            const rounds = roundsOf(r).filter((h) => h && String(h.question || "").trim());
+            return {
+                no: i + 1,
+                question: clip(r.question, 80),
+                category: r.category || "",
+                type: r.type || "",
+                difficulty: r.difficulty || "",
+                score: typeof r.score === "number" ? r.score : null,
+                timeUp: Boolean(r.timeUp),
+                userAnswer: clip(r.userAnswer, 150),
+                followUp: rounds.length
+                    ? {
+                        rounds: rounds.length,
+                        responded: rounds.filter((h) => String((h && h.answer) || "").trim()).length,
+                        angles: rounds.map((h) => String((h && h.angle) || "").trim()).filter(Boolean),
+                    }
+                    : null,
+            };
+        });
 
         const prompt = `
-你是一位资深面试教练。候选人刚完成一场${jobTitle ? `「${jobTitle}」岗位的` : ""}模拟面试,以下是逐题记录(含得分、是否超时、是否被面试官追问及是否回应)。
+你是一位资深面试教练。候选人刚完成一场${jobTitle ? `「${jobTitle}」岗位的` : ""}模拟面试,以下是逐题记录(含得分、是否超时、追问轮数与是否回应)。
 
 逐题记录(JSON):
 ${JSON.stringify(slim)}
@@ -490,6 +518,7 @@ router.post("/evaluate", async (req, res) => {
             resumeBrief,
             followUpQuestion = "",
             followUpAnswer = "",
+            followUpRounds = [], // 多轮追问链 [{ question, angle, answer }](优先于旧的单轮字段)
             style: styleRaw,
         } = req.body;
 
@@ -506,15 +535,27 @@ router.post("/evaluate", async (req, res) => {
             brief ? `求职者简历摘要（面试官已阅读）：\n${brief}` : "",
         ].filter(Boolean).join("\n");
 
-        // P2 追问块:有追问时综合首答与补答评估
-        const hasFollowUp = Boolean(String(followUpQuestion || "").trim());
-        const followUpBlock = hasFollowUp ? `
-【面试官追问】${String(followUpQuestion).trim()}
-【求职者补充回答】${String(followUpAnswer || "").trim() || "（未回应追问）"}
-` : "";
+        // P2 追问块(支持多轮链):优先用 followUpRounds,旧客户端回落到单轮字段
+        const roundsIn = (Array.isArray(followUpRounds) ? followUpRounds : [])
+            .map((h) => ({
+                question: String((h && h.question) || "").trim(),
+                angle: String((h && h.angle) || "").trim(),
+                answer: String((h && h.answer) || "").trim(),
+            }))
+            .filter((h) => h.question);
+        const legacyRound = !roundsIn.length && String(followUpQuestion || "").trim()
+            ? [{ question: String(followUpQuestion).trim(), angle: "", answer: String(followUpAnswer || "").trim() }]
+            : [];
+        const allRounds = roundsIn.length ? roundsIn : legacyRound;
+        const hasFollowUp = allRounds.length > 0;
+        const followUpBlock = hasFollowUp
+            ? "\n" + allRounds
+                .map((h, i) => `【面试官追问·第${i + 1}轮${h.angle ? `（${h.angle}）` : ""}】${h.question}\n【求职者补充回答】${h.answer || "（未回应追问）"}`)
+                .join("\n")
+            : "";
         const followUpRule = hasFollowUp ? `
-- 本次包含一轮面试官追问：请综合首答与补充回答评估，反馈中体现「追问应对」的质量（追问是否回应到位、补充是否弥补了首答的薄弱点）
-${String(followUpAnswer || "").trim() ? "" : "- 求职者未回应追问：请在改进建议中提醒其练习「被追问时如何接话补答」"}
+- 本次包含${allRounds.length > 1 ? ` ${allRounds.length} 轮` : "一轮"}面试官追问：请综合首答与各轮补充回答评估，反馈中体现「追问应对」的质量（追问是否回应到位、补充是否弥补了首答的薄弱点）
+${allRounds.some((h) => !h.answer) ? "- 有未回应的追问：请在改进建议中提醒其练习「被追问时如何接话补答」" : ""}
 ` : "";
 
         const prompt = `

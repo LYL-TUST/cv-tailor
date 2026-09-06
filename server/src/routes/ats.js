@@ -3,6 +3,41 @@ import { openai, MODEL_NAME } from "../services/openaiClient.js";
 
 const router = Router();
 
+// ---- LLM JSON 输出兜底:宽松提取 + 一次重试(防模型输出杂质导致 500) ----
+function extractJsonObject(text) {
+    if (typeof text !== "string" || !text.trim()) throw new Error("模型返回为空");
+    try { return JSON.parse(text); } catch { /* fallthrough */ }
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+        try { return JSON.parse(text.slice(start, end + 1)); } catch { /* fallthrough */ }
+    }
+    throw new Error("模型未能返回合法 JSON");
+}
+
+async function chatJson(prompt, { temperature } = {}) {
+    const messages = [{ role: "user", content: prompt }];
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await openai.chat.completions.create({
+            model: MODEL_NAME,
+            messages,
+            response_format: { type: "json_object" },
+            ...(temperature != null ? { temperature } : {}),
+        });
+        const content = response.choices?.[0]?.message?.content ?? "";
+        try {
+            return extractJsonObject(content);
+        } catch (err) {
+            if (attempt === 0) {
+                messages.push({ role: "assistant", content: String(content).slice(0, 2000) });
+                messages.push({ role: "user", content: "你的上一条输出不是合法 JSON。请只输出一个合法的 JSON 对象,不要包含任何解释、代码块标记或其他文本。" });
+                continue;
+            }
+            throw err;
+        }
+    }
+}
+
 // Analyze resume against job description
 router.post("/analyze", async (req, res) => {
     try {
@@ -28,21 +63,28 @@ ${resumeText}
 请以 JSON 格式输出详细分析，字段如下：
 1. atsScore：整体匹配得分（0-100）
 2. matchedKeywords：命中关键词数组（简历与职位描述都出现的技能/关键词）
-3. missingKeywords：缺失关键词数组（职位描述中的关键要求但简历未体现）
+3. missingKeywords：缺失关键词数组，每项为 {"term": "关键词", "tier": "must" 或 "bonus"}。must=JD 中明确要求的硬性能力；bonus=JD 中标注「优先/加分」的要求
 4. suggestions：3-5 条具体的改进建议（中文，可执行）
 5. categoryScores：分维度得分（technicalSkills 专业技能、experience 经验、keywords 关键词），各 0-100
 6. summary：一段中文总结，说明当前匹配情况与最大差距
 
+注意:bonus 类缺失项不得建议候选人编造经历来补足,应建议用真实经历或学习路径自然呈现。
+
 只返回合法的 JSON，不要输出任何其他文本。
 `;
 
-        const response = await openai.chat.completions.create({
-            model: MODEL_NAME,
-            messages: [{ role: "user", content: analysisPrompt }],
-            response_format: { type: "json_object" },
-        });
+        const analysis = await chatJson(analysisPrompt, { temperature: 0.2 });
 
-        const analysis = JSON.parse(response.choices[0].message.content);
+        // 归一化缺失关键词:missingKeywords 保持字符串数组(向后兼容旧前端/历史记录),
+        // 分级明细另放 missingKeywordTiers,由前端分组渲染「必须 / 加分」
+        const rawMissing = Array.isArray(analysis.missingKeywords) ? analysis.missingKeywords : [];
+        const missingDetailed = rawMissing
+            .map((m) => (typeof m === "string"
+                ? { term: m, tier: "must" }
+                : { term: m.term || m.keyword || String(m), tier: m.tier === "bonus" ? "bonus" : "must" }))
+            .filter((x) => x.term);
+        analysis.missingKeywords = missingDetailed.map((x) => x.term);
+        analysis.missingKeywordTiers = missingDetailed;
 
         res.json(analysis);
     } catch (err) {
@@ -71,13 +113,7 @@ router.post("/keywords", async (req, res) => {
 只返回合法的 JSON，不要输出任何其他文本。
 `;
 
-        const response = await openai.chat.completions.create({
-            model: MODEL_NAME,
-            messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" },
-        });
-
-        const data = JSON.parse(response.choices[0].message.content);
+        const data = await chatJson(prompt, { temperature: 0.4 });
         res.json({ keywords: data.keywords || data });
     } catch (err) {
         console.error("Keyword generation error:", err);
@@ -116,6 +152,7 @@ ${resumeText}
   "requirements": [
     {
       "requirement": "从 JD 中提炼出的一条具体职责/要求（中文）",
+      "priority": "must | bonus",
       "matchLevel": "full | partial | missing",
       "evidence": "简历中支撑该匹配的证据原文摘录；若 missing 则说明为何判断缺失",
       "reasoning": "一句中文推理：为什么判定为这个匹配级别（看能力语义而非字面关键词）",
@@ -129,17 +166,11 @@ ${resumeText}
 - requirements 覆盖 JD 的 4-8 条核心要求，不要遗漏关键职责
 - matchLevel 判定要基于能力语义：例如简历写"负责大模型产品落地"能支撑 JD 的"AI 产品规划"要求，即使措辞不同也算 full 或 partial
 - evidence 必须是简历原文，不要编造
+- priority 按 JD 原文区分：明确要求的职责为 must，「优先/加分」类要求为 bonus；bonus 项若判定 missing，建议中应提醒不必为凑分硬编，可用学习路径自然补足
 - 只返回合法的 JSON，不要输出任何其他文本
 `;
 
-        const response = await openai.chat.completions.create({
-            model: MODEL_NAME,
-            messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" },
-            temperature: 0.2,
-        });
-
-        const result = JSON.parse(response.choices[0].message.content);
+        const result = await chatJson(prompt, { temperature: 0.2 });
         res.json(result);
     } catch (err) {
         console.error("Semantic match error:", err);
@@ -155,13 +186,16 @@ ${resumeText}
 // ============================================================
 router.post("/verify-suggestions", async (req, res) => {
     try {
-        const { resumeText: resumeRaw, jobDescription, suggestions = [], missingKeywords = [] } = req.body;
+        // 优先接收结构化 resumeData,用与 /analyze、/semantic-match 相同的 formatResumeAsText
+        // 格式化,保证 verifier 与诊断看到同一份简历文本(口径统一、省 token);
+        // resumeText 为旧入参,向后兼容
+        const { resumeData, resumeText: resumeRaw, jobDescription, suggestions = [], missingKeywords = [] } = req.body;
 
         if (!jobDescription || suggestions.length === 0) {
             return res.status(400).json({ error: "请提供职位描述与待校验的建议列表" });
         }
 
-        const resumeText = resumeRaw || "";
+        const resumeText = resumeData ? formatResumeAsText(resumeData) : (resumeRaw || "");
 
         const prompt = `
 你是一位严格的简历评审校验员。你的任务是对每条"改进建议"做独立校验，判断它是否：
@@ -197,14 +231,7 @@ ${suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 只返回合法的 JSON，不要输出任何其他文本。
 `;
 
-        const response = await openai.chat.completions.create({
-            model: MODEL_NAME,
-            messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" },
-            temperature: 0.0,
-        });
-
-        const result = JSON.parse(response.choices[0].message.content);
+        const result = await chatJson(prompt, { temperature: 0.0 });
         // 归一化：保证 results 与传入 suggestions 顺序一致
         if (Array.isArray(result.results)) {
             result.results = result.results

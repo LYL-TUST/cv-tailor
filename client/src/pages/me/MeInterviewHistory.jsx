@@ -90,18 +90,24 @@ export default function MeInterviewHistory() {
                           {q.timeUp && <span style={{ marginLeft: 8, fontSize: "11px", padding: "1px 8px", borderRadius: 999, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>⏰ 超时</span>}
                         </p>
                       )}
-                      {q.followUp?.question && (
-                        <div style={{ margin: "6px 0", padding: "8px 10px", background: "#f5f3ff", borderLeft: "3px solid #8b5cf6", borderRadius: "6px" }}>
-                          <p style={{ fontSize: "13px", margin: 0, color: "#4c1d95", fontWeight: 600 }}>
-                            🗣 面试官追问{q.followUp.angle ? `（${q.followUp.angle}）` : ""}：{q.followUp.question}
-                          </p>
-                          {q.followUp.answer ? (
-                            <p style={{ fontSize: "13px", margin: "4px 0 0", color: "#334155" }}><strong>我的补答：</strong>{q.followUp.answer}</p>
-                          ) : (
-                            <p style={{ fontSize: "12px", margin: "4px 0 0", color: "#94a3b8" }}>（未回应追问）</p>
-                          )}
-                        </div>
-                      )}
+                      {(() => {
+                        // 多轮追问链(兼容旧单轮结构 followUp)
+                        const rounds = Array.isArray(q.followUpRounds) && q.followUpRounds.length
+                          ? q.followUpRounds.filter((h) => h && h.question)
+                          : (q.followUp?.question ? [q.followUp] : []);
+                        return rounds.map((fu, i) => (
+                          <div key={i} style={{ margin: "6px 0", padding: "8px 10px", background: "#f5f3ff", borderLeft: "3px solid #8b5cf6", borderRadius: "6px" }}>
+                            <p style={{ fontSize: "13px", margin: 0, color: "#4c1d95", fontWeight: 600 }}>
+                              🗣 面试官追问{rounds.length > 1 ? ` · 第 ${i + 1} 轮` : ""}{fu.angle ? `（${fu.angle}）` : ""}：{fu.question}
+                            </p>
+                            {fu.answer ? (
+                              <p style={{ fontSize: "13px", margin: "4px 0 0", color: "#334155" }}><strong>我的补答：</strong>{fu.answer}</p>
+                            ) : (
+                              <p style={{ fontSize: "12px", margin: "4px 0 0", color: "#94a3b8" }}>（未回应追问）</p>
+                            )}
+                          </div>
+                        ));
+                      })()}
                       {q.feedback && (
                         <p style={{ fontSize: "12px", margin: "4px 0", color: "#065f46", background: "#f0fdf4", padding: "6px 10px", borderRadius: "6px" }}>
                           <strong>AI 反馈：</strong>{q.feedback}

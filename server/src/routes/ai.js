@@ -225,4 +225,42 @@ router.post("/polish-text", async (req, res) => {
   }
 });
 
+// JD 驱动的经历要点改写 —— 真实性护栏:只重写措辞、突出与 JD 要求相关的侧面,禁止新增事实
+// 由 ATS 诊断页「去改写」调用:带着该 bullet + 语义诊断的要求/建议来重写
+router.post("/rewrite-for-jd", async (req, res) => {
+  try {
+    const { bullet, requirement = "", suggestion = "", jobDescription = "" } = req.body;
+    if (!bullet || !bullet.trim()) {
+      return res.status(400).json({ error: "bullet 不能为空。" });
+    }
+
+    const prompt = `
+你是一位专业的简历写作顾问。求职者正在针对一个职位要求,重写自己的一条简历经历要点,让已有经历中与该要求相关的能力呈现得更清晰、更贴近 JD 用语。
+
+职位要求:${requirement || "（未提供）"}
+补强建议:${suggestion || "（未提供）"}
+职位描述(节选):${jobDescription ? jobDescription.slice(0, 1200) : "（未提供）"}
+
+原始经历要点(唯一事实来源):
+"""${bullet}"""
+
+红线(必须遵守):
+- 只允许重新组织语言、结构与措辞,把原要点中与职位要求相关的部分讲得更清楚
+- 不得新增任何原始要点中没有的事实:公司、项目、产品、数字、指标、技能、时间线一律不得编造或夸大
+- 如果原始要点确实不支撑该职位要求,就只做语言优化,不要硬贴 JD 关键词
+- 保持 1-2 行,用中文输出;只返回改写后的要点本身,不要任何解释或引号
+`;
+    const response = await openai.chat.completions.create({
+      model: MODEL_NAME,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.4,
+    });
+
+    res.json({ rewritten: response.choices[0].message.content.trim() });
+  } catch (err) {
+    console.error("Rewrite for JD error:", err);
+    res.status(500).json({ error: "JD 改写失败。" });
+  }
+});
+
 export default router;

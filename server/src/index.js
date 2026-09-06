@@ -31,7 +31,9 @@ app.use(cors({
   credentials: true
 }));
 app.use(morgan("dev"));
-app.use(express.json());
+// 请求体上限提到 2MB:ATS/面试等端点会整份提交简历数据(含排版 settings、
+// 照片 base64、自定义模块),默认 100KB 会直接 413(PayloadTooLargeError)
+app.use(express.json({ limit: "2mb" }));
 
 // API Routes
 app.use("/api/ai", aiRoutes);
